@@ -1,5 +1,12 @@
 # Continuation Runbook
 
+## Deployment (added 2026-08-28)
+
+The project is containerised: root `Dockerfile` (targets `api` — which also serves the
+built dashboard — and `worker`), `docker-compose.prod.yml`, and an interim shared
+access-token gate that production refuses to start without. Full instructions,
+env matrix, and go-live checklist: [DEPLOYMENT.md](DEPLOYMENT.md).
+
 ## Monitoring core (added 2026-08-27)
 
 The platform MVP now runs end-to-end in sample mode (in-memory store, real executors):

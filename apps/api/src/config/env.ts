@@ -3,10 +3,21 @@ import { z } from "zod";
 
 loadEnvFiles();
 
+const DEV_DEFAULTS = new Set([
+  "dev-ingest-n8n-sample-token",
+  "dev-ingest-zapier-sample-token",
+  "dev-worker-token-sample",
+]);
+
 export const env = parseEnv(
   z.object({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     PORT: z.coerce.number().int().positive().default(3000),
+    // Interim auth gate until Supabase Auth (M1): when set, every /api route except
+    // health/ingest/heartbeats/internal requires the X-Access-Token header.
+    ACCESS_TOKEN: z.string().min(24).optional(),
+    // Built dashboard to serve as the SPA; defaults to apps/dashboard/dist when present.
+    DASHBOARD_DIST: z.string().min(1).optional(),
     // Live mode switch: set → Prisma repository against the shared DB; unset → in-memory sample store.
     DATABASE_URL: z.string().url().optional(),
     // AES-256-GCM key (base64, 32 bytes) for secrets at rest (n8n API keys, channel credentials).
@@ -28,6 +39,34 @@ export const env = parseEnv(
       .transform((u) => u.replace(/\/+$/, ""))
       .optional(),
     N8N_API_KEY: z.string().min(1).optional(),
+  }).superRefine((v, ctx) => {
+    if (v.NODE_ENV !== "production") return;
+    if (v.ACCESS_TOKEN === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["ACCESS_TOKEN"],
+        message: "required in production — interim auth gate until Supabase Auth lands (M1)",
+      });
+    }
+    if (DEV_DEFAULTS.has(v.WORKER_TOKEN)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["WORKER_TOKEN"],
+        message: "dev default is not allowed in production — generate a real secret",
+      });
+    }
+    // Sample-mode ingest tokens are live credentials when there is no DB to validate against.
+    if (v.DATABASE_URL === undefined) {
+      for (const key of ["INGEST_TOKEN_N8N", "INGEST_TOKEN_ZAPIER"] as const) {
+        if (DEV_DEFAULTS.has(v[key])) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [key],
+            message: "dev default is not allowed in production sample mode — generate a real secret",
+          });
+        }
+      }
+    }
   }),
 );
 

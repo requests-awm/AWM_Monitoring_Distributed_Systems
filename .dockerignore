@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+**/.turbo
+.git
+.vscode
+.env
+.env.*
+!.env.example
+docs
+*.md
+docker-compose*.yml
+Dockerfile

@@ -1,0 +1,72 @@
+# Production stack: API (serves the dashboard) + worker + Redis.
+# Secrets come from a .env file next to this compose file (or real env vars).
+# Required: ACCESS_TOKEN, WORKER_TOKEN (non-dev values — the apps refuse dev
+# defaults when NODE_ENV=production). See docs/DEPLOYMENT.md.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+
+services:
+  api:
+    build:
+      context: .
+      target: api
+    container_name: awm-monitoring-api
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      ACCESS_TOKEN: ${ACCESS_TOKEN:?generate a strong token (24+ chars)}
+      WORKER_TOKEN: ${WORKER_TOKEN:?must match the worker's WORKER_TOKEN}
+      # Live mode (leave blank to run the in-memory sample store):
+      DATABASE_URL: ${DATABASE_URL:-}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      # Sample-mode ingest tokens (live mode validates against the DB instead):
+      INGEST_TOKEN_N8N: ${INGEST_TOKEN_N8N:-}
+      INGEST_TOKEN_ZAPIER: ${INGEST_TOKEN_ZAPIER:-}
+      # Optional integrations:
+      N8N_BASE_URL: ${N8N_BASE_URL:-}
+      N8N_API_KEY: ${N8N_API_KEY:-}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_FROM: ${TWILIO_FROM:-}
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      target: worker
+    container_name: awm-monitoring-worker
+    environment:
+      NODE_ENV: production
+      WORKER_PORT: 3001
+      API_BASE_URL: http://api:3000
+      WORKER_TOKEN: ${WORKER_TOKEN:?must match the API's WORKER_TOKEN}
+      REDIS_URL: redis://redis:6379
+      # n8n reconciliation sweep (idle until all three are set):
+      N8N_BASE_URL: ${N8N_BASE_URL:-}
+      N8N_API_KEY: ${N8N_API_KEY:-}
+      INGEST_TOKEN_N8N: ${INGEST_TOKEN_N8N:-}
+      SWEEP_INTERVAL_MS: ${SWEEP_INTERVAL_MS:-300000}
+    depends_on:
+      api:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: awm-monitoring-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  redis-data:

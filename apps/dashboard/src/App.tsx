@@ -1,3 +1,4 @@
+import { AccessGate } from "./components/AccessGate";
 import { AppNav, useRoute } from "./components/AppNav";
 import AutomationsPage from "./pages/AutomationsPage";
 import IncidentsPage from "./pages/IncidentsPage";
@@ -24,6 +25,7 @@ export default function App(): JSX.Element {
   const Page = PAGES[route];
   return (
     <>
+      <AccessGate />
       <AppNav route={route} />
       <Page />
     </>
