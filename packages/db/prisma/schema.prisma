@@ -1,0 +1,647 @@
+// AWM Monitoring System — Prisma schema
+// Schema: awm_monitoring (AWM shared Supabase instance).
+// Conventions enforced (see CLAUDE.md / STANDARDS_AND_RULES.md):
+//   - TIMESTAMPTZ for all timestamps (@db.Timestamptz(6))
+//   - Enum types for all controlled values, lowercase snake_case
+//   - Foreign keys ON DELETE RESTRICT (onDelete: Restrict)
+//   - Soft delete (is_deleted / deleted_at / deletion_reason) on config + audit entities
+//   - org_id on every tenant-scoped table
+//   - No insightly_id in MVP core (added only on client-linked tables, e.g. Insightly monitoring)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["awm_monitoring"]
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum OrgRole {
+  owner
+  administrator
+  operator
+  viewer
+
+  @@map("org_role_type")
+  @@schema("awm_monitoring")
+}
+
+enum MonitorType {
+  http
+  tcp_port
+  heartbeat
+  ssl
+  api_integration
+  email_provider
+  email_canary
+  synthetic_workflow
+
+  @@map("monitor_type")
+  @@schema("awm_monitoring")
+}
+
+enum Severity {
+  critical
+  high
+  medium
+  low
+
+  @@map("severity_type")
+  @@schema("awm_monitoring")
+}
+
+enum CheckResultStatus {
+  success
+  failure
+  degraded
+
+  @@map("check_result_status_type")
+  @@schema("awm_monitoring")
+}
+
+enum IncidentStatus {
+  open
+  acknowledged
+  investigating
+  resolved
+  muted
+
+  @@map("incident_status_type")
+  @@schema("awm_monitoring")
+}
+
+enum IncidentEventType {
+  created
+  acknowledged
+  note_added
+  assigned
+  escalated
+  notified
+  resolved
+  reopened
+  muted
+
+  @@map("incident_event_type")
+  @@schema("awm_monitoring")
+}
+
+enum NotificationChannelType {
+  email
+  sms
+  whatsapp
+  slack
+  teams
+  asana
+  webhook
+
+  @@map("notification_channel_type")
+  @@schema("awm_monitoring")
+}
+
+enum HeartbeatEventType {
+  success
+  failure
+  started
+  completed
+
+  @@map("heartbeat_event_type")
+  @@schema("awm_monitoring")
+}
+
+enum MaintenanceScope {
+  organisation
+  project
+  environment
+  monitor
+
+  @@map("maintenance_scope_type")
+  @@schema("awm_monitoring")
+}
+
+enum AuditAction {
+  user_login
+  monitor_created
+  monitor_changed
+  monitor_deleted
+  incident_acknowledged
+  incident_resolved
+  notification_channel_changed
+  alert_rule_changed
+  secret_rotated
+
+  @@map("audit_action_type")
+  @@schema("awm_monitoring")
+}
+
+enum WorkflowPlatform {
+  n8n
+  zapier
+  make
+  custom_app
+  other
+
+  @@map("workflow_platform_type")
+  @@schema("awm_monitoring")
+}
+
+enum WorkflowEventType {
+  execution_failed
+  workflow_deactivated
+  task_halted
+
+  @@map("workflow_event_type")
+  @@schema("awm_monitoring")
+}
+
+enum WorkflowEventStatus {
+  new
+  acknowledged
+  investigating
+  retried
+  resolved
+  ignored
+
+  @@map("workflow_event_status_type")
+  @@schema("awm_monitoring")
+}
+
+enum IngestChannel {
+  push
+  sweep
+
+  @@map("ingest_channel_type")
+  @@schema("awm_monitoring")
+}
+
+// ---------------------------------------------------------------------------
+// Identity & tenancy
+// ---------------------------------------------------------------------------
+
+model Organisation {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String
+  slug           String    @unique
+  isDeleted      Boolean   @default(false) @map("is_deleted")
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletionReason String?   @map("deletion_reason")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  members             OrgMember[]
+  projects            Project[]
+  environments        Environment[]
+  monitors            Monitor[]
+  monitorResults      MonitorResult[]
+  incidents           Incident[]
+  incidentEvents      IncidentEvent[]
+  notificationChannels NotificationChannel[]
+  alertRules          AlertRule[]
+  maintenanceWindows  MaintenanceWindow[]
+  heartbeatEvents     HeartbeatEvent[]
+  auditLogs           AuditLog[]
+  workflowSources     WorkflowSource[]
+  workflowFailureEvents WorkflowFailureEvent[]
+
+  @@map("organisations")
+  @@schema("awm_monitoring")
+}
+
+// Mirrors Supabase auth.users; id equals the auth uid (set on insert, not generated here).
+model User {
+  id             String    @id @db.Uuid
+  email          String    @unique
+  fullName       String?   @map("full_name")
+  isDeleted      Boolean   @default(false) @map("is_deleted")
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletionReason String?   @map("deletion_reason")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  memberships       OrgMember[]
+  createdMonitors   Monitor[]       @relation("MonitorCreatedBy")
+  assignedIncidents Incident[]      @relation("IncidentAssignee")
+  incidentEvents    IncidentEvent[] @relation("IncidentEventActor")
+  auditLogs         AuditLog[]      @relation("AuditLogActor")
+
+  @@map("users")
+  @@schema("awm_monitoring")
+}
+
+model OrgMember {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  role      OrgRole  @default(viewer)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  org  Organisation @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  user User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([orgId, userId])
+  @@index([orgId])
+  @@index([userId])
+  @@map("org_members")
+  @@schema("awm_monitoring")
+}
+
+model Project {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String    @map("org_id") @db.Uuid
+  name           String
+  slug           String
+  description    String?
+  isDeleted      Boolean   @default(false) @map("is_deleted")
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletionReason String?   @map("deletion_reason")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  org                Organisation        @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  environments       Environment[]
+  monitors           Monitor[]
+  maintenanceWindows MaintenanceWindow[]
+
+  @@unique([orgId, slug])
+  @@index([orgId])
+  @@map("projects")
+  @@schema("awm_monitoring")
+}
+
+model Environment {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String    @map("org_id") @db.Uuid
+  projectId      String    @map("project_id") @db.Uuid
+  name           String
+  isDeleted      Boolean   @default(false) @map("is_deleted")
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletionReason String?   @map("deletion_reason")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  org                Organisation        @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  project            Project             @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  monitors           Monitor[]
+  maintenanceWindows MaintenanceWindow[]
+
+  @@unique([projectId, name])
+  @@index([orgId])
+  @@index([projectId])
+  @@map("environments")
+  @@schema("awm_monitoring")
+}
+
+// ---------------------------------------------------------------------------
+// Monitors & results
+// ---------------------------------------------------------------------------
+
+model Monitor {
+  id                   String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId                String      @map("org_id") @db.Uuid
+  projectId            String      @map("project_id") @db.Uuid
+  environmentId        String      @map("environment_id") @db.Uuid
+  name                 String
+  description          String?
+  monitorType          MonitorType @map("monitor_type")
+  checkIntervalMinutes Int         @map("check_interval_minutes")
+  timeoutMs            Int         @default(30000) @map("timeout_ms")
+  retryCount           Int         @default(0) @map("retry_count")
+  enabled              Boolean     @default(true)
+  severity             Severity    @default(medium)
+  tags                 String[]    @default([])
+  // Per-type config (HTTP url/method/auth/validation, TCP host/port, SSL host, etc.).
+  // Sensitive values are encrypted at the application layer before storage.
+  configuration        Json        @default("{}")
+  // Heartbeat monitors only: secure random token used in the ingest URL.
+  heartbeatToken       String?     @unique @map("heartbeat_token")
+  createdById          String?     @map("created_by") @db.Uuid
+  isDeleted            Boolean     @default(false) @map("is_deleted")
+  deletedAt            DateTime?   @map("deleted_at") @db.Timestamptz(6)
+  deletionReason       String?     @map("deletion_reason")
+  createdAt            DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  org                Organisation        @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  project            Project             @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  environment        Environment         @relation(fields: [environmentId], references: [id], onDelete: Restrict)
+  createdBy          User?               @relation("MonitorCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  results            MonitorResult[]
+  incidents          Incident[]
+  heartbeatEvents    HeartbeatEvent[]
+  alertRules         AlertRule[]
+  maintenanceWindows MaintenanceWindow[]
+
+  @@index([orgId])
+  @@index([projectId])
+  @@index([environmentId])
+  @@index([enabled])
+  @@map("monitors")
+  @@schema("awm_monitoring")
+}
+
+model MonitorResult {
+  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String            @map("org_id") @db.Uuid
+  monitorId      String            @map("monitor_id") @db.Uuid
+  status         CheckResultStatus
+  success        Boolean
+  responseTimeMs Int?              @map("response_time_ms")
+  statusCode     Int?              @map("status_code")
+  failureReason  String?           @map("failure_reason")
+  metadata       Json?
+  checkedAt      DateTime          @default(now()) @map("checked_at") @db.Timestamptz(6)
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  org     Organisation @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  monitor Monitor      @relation(fields: [monitorId], references: [id], onDelete: Restrict)
+
+  @@index([monitorId, checkedAt(sort: Desc)])
+  @@index([orgId])
+  @@map("monitor_results")
+  @@schema("awm_monitoring")
+}
+
+// ---------------------------------------------------------------------------
+// Incidents
+// ---------------------------------------------------------------------------
+
+model Incident {
+  id               String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId            String         @map("org_id") @db.Uuid
+  monitorId        String         @map("monitor_id") @db.Uuid
+  status           IncidentStatus @default(open)
+  severity         Severity
+  title            String
+  summary          String?
+  failureReason    String?        @map("failure_reason")
+  dedupSignature   String         @map("dedup_signature")
+  occurrenceCount  Int            @default(1) @map("occurrence_count")
+  startedAt        DateTime       @default(now()) @map("started_at") @db.Timestamptz(6)
+  lastOccurrenceAt DateTime       @default(now()) @map("last_occurrence_at") @db.Timestamptz(6)
+  acknowledgedAt   DateTime?      @map("acknowledged_at") @db.Timestamptz(6)
+  resolvedAt       DateTime?      @map("resolved_at") @db.Timestamptz(6)
+  assignedToId     String?        @map("assigned_to") @db.Uuid
+  isDeleted        Boolean        @default(false) @map("is_deleted")
+  deletedAt        DateTime?      @map("deleted_at") @db.Timestamptz(6)
+  deletionReason   String?        @map("deletion_reason")
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  org        Organisation    @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  monitor    Monitor         @relation(fields: [monitorId], references: [id], onDelete: Restrict)
+  assignedTo User?           @relation("IncidentAssignee", fields: [assignedToId], references: [id], onDelete: Restrict)
+  events     IncidentEvent[]
+  workflowFailureEvents WorkflowFailureEvent[]
+
+  @@index([orgId])
+  @@index([monitorId])
+  @@index([status])
+  @@index([dedupSignature])
+  @@map("incidents")
+  @@schema("awm_monitoring")
+}
+
+model IncidentEvent {
+  id         String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId      String            @map("org_id") @db.Uuid
+  incidentId String            @map("incident_id") @db.Uuid
+  eventType  IncidentEventType @map("event_type")
+  message    String?
+  actorId    String?           @map("actor_id") @db.Uuid
+  metadata   Json?
+  createdAt  DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  org      Organisation @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  incident Incident     @relation(fields: [incidentId], references: [id], onDelete: Restrict)
+  actor    User?        @relation("IncidentEventActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([incidentId])
+  @@index([orgId])
+  @@map("incident_events")
+  @@schema("awm_monitoring")
+}
+
+// ---------------------------------------------------------------------------
+// Alerting
+// ---------------------------------------------------------------------------
+
+model NotificationChannel {
+  id             String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String                  @map("org_id") @db.Uuid
+  name           String
+  channelType    NotificationChannelType @map("channel_type")
+  // Destination + credentials (webhook URL, email address, phone). Encrypted at rest.
+  config         Json                    @default("{}")
+  enabled        Boolean                 @default(true)
+  isDeleted      Boolean                 @default(false) @map("is_deleted")
+  deletedAt      DateTime?               @map("deleted_at") @db.Timestamptz(6)
+  deletionReason String?                 @map("deletion_reason")
+  createdAt      DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  org        Organisation @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  alertRules AlertRule[]
+
+  @@index([orgId])
+  @@map("notification_channels")
+  @@schema("awm_monitoring")
+}
+
+model AlertRule {
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId                  String    @map("org_id") @db.Uuid
+  name                   String
+  monitorId              String?   @map("monitor_id") @db.Uuid
+  channelId              String    @map("notification_channel_id") @db.Uuid
+  // Matching criteria: severity, project, environment, monitor_type, time_of_day,
+  // day_of_week, failure_duration, number_of_failures (see spec Task 11.2).
+  conditions             Json      @default("{}")
+  escalationDelaySeconds Int?      @map("escalation_delay_seconds")
+  priority               Int       @default(0)
+  enabled                Boolean   @default(true)
+  isDeleted              Boolean   @default(false) @map("is_deleted")
+  deletedAt              DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletionReason         String?   @map("deletion_reason")
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  org     Organisation        @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  channel NotificationChannel @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  monitor Monitor?            @relation(fields: [monitorId], references: [id], onDelete: Restrict)
+
+  @@index([orgId])
+  @@index([channelId])
+  @@map("alert_rules")
+  @@schema("awm_monitoring")
+}
+
+// ---------------------------------------------------------------------------
+// Maintenance
+// ---------------------------------------------------------------------------
+
+model MaintenanceWindow {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String           @map("org_id") @db.Uuid
+  name           String
+  scope          MaintenanceScope
+  projectId      String?          @map("project_id") @db.Uuid
+  environmentId  String?          @map("environment_id") @db.Uuid
+  monitorId      String?          @map("monitor_id") @db.Uuid
+  startsAt       DateTime         @map("starts_at") @db.Timestamptz(6)
+  endsAt         DateTime         @map("ends_at") @db.Timestamptz(6)
+  // iCal RRULE for recurring windows; null = one-time.
+  recurrenceRule String?          @map("recurrence_rule")
+  muteExisting   Boolean          @default(false) @map("mute_existing")
+  isDeleted      Boolean          @default(false) @map("is_deleted")
+  deletedAt      DateTime?        @map("deleted_at") @db.Timestamptz(6)
+  deletionReason String?          @map("deletion_reason")
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  org         Organisation @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  project     Project?     @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  environment Environment? @relation(fields: [environmentId], references: [id], onDelete: Restrict)
+  monitor     Monitor?     @relation(fields: [monitorId], references: [id], onDelete: Restrict)
+
+  @@index([orgId])
+  @@index([startsAt, endsAt])
+  @@map("maintenance_windows")
+  @@schema("awm_monitoring")
+}
+
+// ---------------------------------------------------------------------------
+// Heartbeats
+// ---------------------------------------------------------------------------
+
+model HeartbeatEvent {
+  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId            String             @map("org_id") @db.Uuid
+  monitorId        String             @map("monitor_id") @db.Uuid
+  eventType        HeartbeatEventType @map("event_type")
+  jobName          String?            @map("job_name")
+  recordsProcessed Int?               @map("records_processed")
+  recordsFailed    Int?               @map("records_failed")
+  durationMs       Int?               @map("duration_ms")
+  errorMessage     String?            @map("error_message")
+  metadata         Json?
+  receivedAt       DateTime           @default(now()) @map("received_at") @db.Timestamptz(6)
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  org     Organisation @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  monitor Monitor      @relation(fields: [monitorId], references: [id], onDelete: Restrict)
+
+  @@index([monitorId, receivedAt(sort: Desc)])
+  @@index([orgId])
+  @@map("heartbeat_events")
+  @@schema("awm_monitoring")
+}
+
+// ---------------------------------------------------------------------------
+// Audit (append-only, immutable)
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id         String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId      String      @map("org_id") @db.Uuid
+  actorId    String?     @map("actor_id") @db.Uuid
+  action     AuditAction
+  entityType String?     @map("entity_type")
+  entityId   String?     @map("entity_id")
+  metadata   Json?
+  createdAt  DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  org   Organisation @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  actor User?        @relation("AuditLogActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([orgId, createdAt(sort: Desc)])
+  @@index([actorId])
+  @@map("audit_logs")
+  @@schema("awm_monitoring")
+}
+
+// ---------------------------------------------------------------------------
+// Workflow failure monitoring (n8n / Zapier failure inbox)
+// See docs/workflow-failure-monitoring.md
+// ---------------------------------------------------------------------------
+
+model WorkflowSource {
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId           String           @map("org_id") @db.Uuid
+  platform        WorkflowPlatform
+  name            String
+  baseUrl         String?          @map("base_url")
+  // Platform API key (n8n; null for Zapier). AES-256-GCM encrypted at the app layer.
+  apiKeyEncrypted String?          @map("api_key_encrypted")
+  // SHA-256 of the per-source ingest bearer token; the plaintext is shown once at creation.
+  ingestTokenHash String           @unique @map("ingest_token_hash")
+  sweepEnabled    Boolean          @default(false) @map("sweep_enabled")
+  lastSweptAt     DateTime?        @map("last_swept_at") @db.Timestamptz(6)
+  sweepCursor     String?          @map("sweep_cursor")
+  isDeleted       Boolean          @default(false) @map("is_deleted")
+  deletedAt       DateTime?        @map("deleted_at") @db.Timestamptz(6)
+  deletionReason  String?          @map("deletion_reason")
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  org    Organisation           @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  events WorkflowFailureEvent[]
+
+  @@index([orgId])
+  @@map("workflow_sources")
+  @@schema("awm_monitoring")
+}
+
+model WorkflowFailureEvent {
+  id                  String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId               String              @map("org_id") @db.Uuid
+  sourceId            String              @map("source_id") @db.Uuid
+  eventType           WorkflowEventType   @map("event_type")
+  status              WorkflowEventStatus @default(new)
+  workflowExternalId  String              @map("workflow_external_id")
+  workflowName        String              @map("workflow_name")
+  executionExternalId String?             @map("execution_external_id")
+  executionUrl        String?             @map("execution_url")
+  errorMessage        String              @map("error_message")
+  errorNode           String?             @map("error_node")
+  errorStack          String?             @map("error_stack")
+  // Trigger data that fed the failed run (truncated, secrets stripped at ingest).
+  inputPayload        Json?               @map("input_payload")
+  // Webhook / catch URL for edit-and-resubmit; null when the workflow isn't webhook-triggered.
+  resubmitUrl         String?             @map("resubmit_url")
+  // Generated workflow-repair proposal ({ summary, changes[], mechanism }).
+  fixSuggestion       Json?               @map("fix_suggestion")
+  rawPayload          Json                @default("{}") @map("raw_payload")
+  // Idempotency key: "<event_type>:<execution_external_id>" or a payload hash when no execution id exists.
+  dedupKey            String              @map("dedup_key")
+  occurredAt          DateTime            @map("occurred_at") @db.Timestamptz(6)
+  receivedAt          DateTime            @default(now()) @map("received_at") @db.Timestamptz(6)
+  ingestChannel       IngestChannel       @default(push) @map("ingest_channel")
+  // Free-text until Supabase Auth user mirroring lands (M1); becomes a users FK then.
+  assignee            String?
+  acknowledgedAt      DateTime?           @map("acknowledged_at") @db.Timestamptz(6)
+  resolvedAt          DateTime?           @map("resolved_at") @db.Timestamptz(6)
+  retryExecutionId    String?             @map("retry_execution_id")
+  incidentId          String?             @map("incident_id") @db.Uuid
+  isDeleted           Boolean             @default(false) @map("is_deleted")
+  deletedAt           DateTime?           @map("deleted_at") @db.Timestamptz(6)
+  deletionReason      String?             @map("deletion_reason")
+  createdAt           DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  org      Organisation   @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  source   WorkflowSource @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  incident Incident?      @relation(fields: [incidentId], references: [id], onDelete: Restrict)
+
+  @@unique([sourceId, dedupKey])
+  @@index([orgId, status, receivedAt(sort: Desc)])
+  @@index([sourceId])
+  @@index([workflowExternalId])
+  @@map("workflow_failure_events")
+  @@schema("awm_monitoring")
+}

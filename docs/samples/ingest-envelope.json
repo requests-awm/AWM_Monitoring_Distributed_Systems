@@ -1,0 +1,18 @@
+{
+  "platform": "n8n",
+  "event_type": "execution_failed",
+  "workflow": { "external_id": "wf-demo", "name": "Demo Workflow" },
+  "execution": {
+    "external_id": "90001",
+    "url": "https://awm.app.n8n.cloud/workflow/wf-demo/executions/90001"
+  },
+  "error": {
+    "message": "Demo failure from the sample envelope",
+    "node": "HTTP Request",
+    "stack": null
+  },
+  "input_payload": { "demo": true },
+  "resubmit_url": null,
+  "occurred_at": "2026-08-26T08:00:00.000Z",
+  "raw": { "note": "sample envelope for docs/CONTINUATION.md" }
+}

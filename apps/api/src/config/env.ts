@@ -1,0 +1,34 @@
+import { loadEnvFiles, parseEnv } from "@awm/config";
+import { z } from "zod";
+
+loadEnvFiles();
+
+export const env = parseEnv(
+  z.object({
+    NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+    PORT: z.coerce.number().int().positive().default(3000),
+    // Live mode switch: set → Prisma repository against the shared DB; unset → in-memory sample store.
+    DATABASE_URL: z.string().url().optional(),
+    // AES-256-GCM key (base64, 32 bytes) for secrets at rest (n8n API keys, channel credentials).
+    ENCRYPTION_KEY: z.string().min(1).optional(),
+    // Sample-mode ingest tokens; in live mode tokens are validated against workflow_sources.ingest_token_hash.
+    INGEST_TOKEN_N8N: z.string().min(16).default("dev-ingest-n8n-sample-token"),
+    INGEST_TOKEN_ZAPIER: z.string().min(16).default("dev-ingest-zapier-sample-token"),
+    // Shared secret for the worker's internal endpoints (due checks + result reports).
+    WORKER_TOKEN: z.string().min(16).default("dev-worker-token-sample"),
+    // Twilio (SMS / WhatsApp channels send for real when all three are set).
+    TWILIO_ACCOUNT_SID: z.string().min(1).optional(),
+    TWILIO_AUTH_TOKEN: z.string().min(1).optional(),
+    TWILIO_FROM: z.string().min(1).optional(),
+    // Set for the worker sweep; the API reads it for the automations inventory
+    // and to skip fake n8n seed data.
+    N8N_BASE_URL: z
+      .string()
+      .url()
+      .transform((u) => u.replace(/\/+$/, ""))
+      .optional(),
+    N8N_API_KEY: z.string().min(1).optional(),
+  }),
+);
+
+export const isLiveMode = env.DATABASE_URL !== undefined;
