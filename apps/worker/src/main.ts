@@ -10,6 +10,9 @@ import { WorkerModule } from "./worker.module";
 
 // The worker is a headless application context; containers and host platforms
 // still need something to probe, so expose a bare liveness endpoint.
+// PORT (injected by Cloud Run/Heroku-style hosts) wins over WORKER_PORT.
+const healthPort = Number(process.env.PORT ?? "") > 0 ? Number(process.env.PORT) : env.WORKER_PORT;
+
 function startHealthServer(logger: Logger): Server {
   const server = createServer((req, res) => {
     if (req.method === "GET" && (req.url === "/health" || req.url === "/")) {
@@ -22,8 +25,8 @@ function startHealthServer(logger: Logger): Server {
     res.writeHead(404);
     res.end();
   });
-  server.listen(env.WORKER_PORT, "0.0.0.0", () => {
-    logger.log(`Health endpoint on http://localhost:${env.WORKER_PORT}/health`);
+  server.listen(healthPort, "0.0.0.0", () => {
+    logger.log(`Health endpoint on http://localhost:${healthPort}/health`);
   });
   return server;
 }
