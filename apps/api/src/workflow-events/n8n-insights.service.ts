@@ -6,6 +6,8 @@ import { env } from "../config/env";
 const CACHE_TTL_MS = 5 * 60_000;
 /** Hard cap on history fetched per refresh: 60 pages × 250 = 15k executions. */
 const MAX_PAGES = 60;
+/** Per-page fetch budget — a hung n8n must fail the page, not the dashboard. */
+const FETCH_TIMEOUT_MS = 15_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 interface N8nExecutionRow {
@@ -29,6 +31,9 @@ interface N8nExecutionRow {
 export class N8nInsightsService {
   private readonly logger = new Logger(N8nInsightsService.name);
   private readonly cache = new Map<number, { at: number; value: N8nInsightsResponse }>();
+  // Single-flight per window: the crawl takes seconds, and the dashboard's
+  // retries must join the running refresh, not start parallel ones.
+  private readonly inFlight = new Map<number, Promise<N8nInsightsResponse>>();
 
   async insights(days: number): Promise<N8nInsightsResponse> {
     if (env.N8N_BASE_URL === undefined || env.N8N_API_KEY === undefined) {
@@ -38,7 +43,31 @@ export class N8nInsightsService {
     if (cached !== undefined && Date.now() - cached.at < CACHE_TTL_MS) {
       return cached.value;
     }
+    const running = this.inFlight.get(days);
+    if (running !== undefined) return running;
+    const refresh = this.refresh(days).finally(() => this.inFlight.delete(days));
+    this.inFlight.set(days, refresh);
+    return refresh;
+  }
 
+  private async refresh(days: number): Promise<N8nInsightsResponse> {
+    try {
+      return await this.rebuild(days);
+    } catch (error) {
+      // Serve stale numbers over an error page while n8n has a bad moment.
+      const stale = this.cache.get(days);
+      if (stale !== undefined) {
+        this.logger.warn(
+          `insights refresh failed — serving stale data from ${stale.value.generatedAt}`,
+          { days, error: error instanceof Error ? error.message : String(error) },
+        );
+        return stale.value;
+      }
+      throw error;
+    }
+  }
+
+  private async rebuild(days: number): Promise<N8nInsightsResponse> {
     const now = Date.now();
     const currentStart = now - days * DAY_MS;
     const previousStart = now - 2 * days * DAY_MS;
@@ -72,7 +101,10 @@ export class N8nInsightsService {
     let cursor: string | null = null;
     for (let page = 0; page < MAX_PAGES; page += 1) {
       const url = `${env.N8N_BASE_URL as string}/api/v1/executions?limit=250${cursor === null ? "" : `&cursor=${encodeURIComponent(cursor)}`}`;
-      const res = await fetch(url, { headers: { "X-N8N-API-KEY": env.N8N_API_KEY as string } });
+      const res = await fetch(url, {
+        headers: { "X-N8N-API-KEY": env.N8N_API_KEY as string },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
       if (!res.ok) throw new BadRequestException(`n8n executions returned ${res.status}`);
       const body = (await res.json()) as { data?: N8nExecutionRow[]; nextCursor?: string | null };
       const batch = body.data ?? [];

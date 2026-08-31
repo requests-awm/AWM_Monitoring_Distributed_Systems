@@ -13,6 +13,8 @@ import {
 } from "./workflow-events.repository";
 
 const N8N_CACHE_TTL_MS = 5 * 60_000;
+/** Per-call budget for n8n API requests — hang the page, not the dashboard. */
+const N8N_FETCH_TIMEOUT_MS = 15_000;
 // A workflow counts as "failing" only while it has open (new/acknowledged)
 // events this recent — resolving in the inbox or 7 days of silence clears it.
 const FAILURE_WINDOW_MS = 7 * 24 * 60 * 60_000;
@@ -58,7 +60,15 @@ export class AutomationsService {
       try {
         rows.push(...(await this.n8nRows()));
       } catch (error) {
-        notes.push(`n8n list unavailable: ${error instanceof Error ? error.message : String(error)}`);
+        const reason = error instanceof Error ? error.message : String(error);
+        if (this.n8nCache !== null) {
+          rows.push(...this.n8nCache.rows);
+          notes.push(
+            `n8n list refresh failed (${reason}) — showing the cached inventory from ${new Date(this.n8nCache.fetchedAt).toISOString()}.`,
+          );
+        } else {
+          notes.push(`n8n list unavailable: ${reason}`);
+        }
       }
     } else {
       notes.push("n8n not connected — set N8N_BASE_URL and N8N_API_KEY.");
@@ -121,6 +131,7 @@ export class AutomationsService {
     const res = await fetch(url, {
       method: "POST",
       headers: { "X-N8N-API-KEY": env.N8N_API_KEY },
+      signal: AbortSignal.timeout(N8N_FETCH_TIMEOUT_MS),
     });
     if (!res.ok) {
       const body = await res.text();
@@ -163,7 +174,10 @@ export class AutomationsService {
     let cursor: string | null = null;
     for (let page = 0; page < 12; page += 1) {
       const url = `${base}/api/v1/workflows?limit=250${cursor === null ? "" : `&cursor=${encodeURIComponent(cursor)}`}`;
-      const res = await fetch(url, { headers: { "X-N8N-API-KEY": env.N8N_API_KEY as string } });
+      const res = await fetch(url, {
+        headers: { "X-N8N-API-KEY": env.N8N_API_KEY as string },
+        signal: AbortSignal.timeout(N8N_FETCH_TIMEOUT_MS),
+      });
       if (!res.ok) throw new Error(`n8n workflows returned ${res.status}`);
       const body = (await res.json()) as { data?: N8nWorkflowRow[]; nextCursor?: string | null };
       for (const w of body.data ?? []) {
