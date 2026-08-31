@@ -1,6 +1,6 @@
 import { NotFoundException } from "@nestjs/common";
 
-import { env } from "../config/env";
+import { env, seedDemoData } from "../config/env";
 import { sha256Hex } from "../lib/secrets";
 import { buildWorkflowEventsFixture } from "./workflow-events.fixture";
 import type {
@@ -63,9 +63,10 @@ export class InMemoryWorkflowEventsRepository implements WorkflowEventsRepositor
 
   // Real n8n failures arrive via the sweep once the instance is connected —
   // suppress the fake n8n demo rows then, so real and sample data never mix.
+  // SEED_DEMO_DATA=false suppresses every fixture event (production deployments).
   private readonly events = new Map<string, StoredWorkflowEvent>(
     buildWorkflowEventsFixture()
-      .filter((e) => !(e.platform === "n8n" && env.N8N_API_KEY !== undefined))
+      .filter((e) => seedDemoData && !(e.platform === "n8n" && env.N8N_API_KEY !== undefined))
       .map((e) => [
       e.id,
       {

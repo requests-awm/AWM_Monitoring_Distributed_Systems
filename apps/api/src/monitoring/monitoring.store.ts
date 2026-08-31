@@ -11,7 +11,7 @@ import type {
   Severity,
 } from "@awm/shared";
 
-import { env } from "../config/env";
+import { env, seedDemoData } from "../config/env";
 
 /**
  * Sample-mode store for the monitoring core. Same seam pattern as the
@@ -379,22 +379,26 @@ export class MonitoringStore {
       },
       heartbeatToken: null,
     });
-    seedMonitor({
-      id: "mon-heartbeat-demo",
-      name: "Demo cron heartbeat",
-      description: "Missed-job detection demo — ping /api/heartbeats/{token} to recover it",
-      projectId: platform.id,
-      environmentId: "env-platform-prod",
-      monitorType: "heartbeat",
-      checkIntervalMinutes: 1,
-      timeoutMs: 5_000,
-      retryCount: 0,
-      severity: "medium",
-      tags: ["demo", "cron"],
-      enabled: true,
-      configuration: { expectedIntervalMinutes: 1, graceMinutes: 0 },
-      heartbeatToken: `hb_${randomBytes(16).toString("base64url")}`,
-    });
+    // The 1-minute demo heartbeat exists to show missed-job detection; on
+    // real deployments (SEED_DEMO_DATA=false) it would just be a noise machine.
+    if (seedDemoData) {
+      seedMonitor({
+        id: "mon-heartbeat-demo",
+        name: "Demo cron heartbeat",
+        description: "Missed-job detection demo — ping /api/heartbeats/{token} to recover it",
+        projectId: platform.id,
+        environmentId: "env-platform-prod",
+        monitorType: "heartbeat",
+        checkIntervalMinutes: 1,
+        timeoutMs: 5_000,
+        retryCount: 0,
+        severity: "medium",
+        tags: ["demo", "cron"],
+        enabled: true,
+        configuration: { expectedIntervalMinutes: 1, graceMinutes: 0 },
+        heartbeatToken: `hb_${randomBytes(16).toString("base64url")}`,
+      });
+    }
     seedMonitor({
       id: "mon-heartbeat-sync",
       name: "Nightly Insightly sync",

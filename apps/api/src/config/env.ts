@@ -31,6 +31,9 @@ export const env = parseEnv(
     TWILIO_ACCOUNT_SID: z.string().min(1).optional(),
     TWILIO_AUTH_TOKEN: z.string().min(1).optional(),
     TWILIO_FROM: z.string().min(1).optional(),
+    // "false" hides all sample/demo data (fixture workflow events and the demo
+    // heartbeat monitor) — set on deployments where only real data should show.
+    SEED_DEMO_DATA: z.string().optional(),
     // Set for the worker sweep; the API reads it for the automations inventory
     // and to skip fake n8n seed data.
     N8N_BASE_URL: z
@@ -71,3 +74,4 @@ export const env = parseEnv(
 );
 
 export const isLiveMode = env.DATABASE_URL !== undefined;
+export const seedDemoData = env.SEED_DEMO_DATA !== "false";
