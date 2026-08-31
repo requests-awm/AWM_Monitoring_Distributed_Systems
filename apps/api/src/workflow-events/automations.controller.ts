@@ -16,17 +16,30 @@ import {
   N8nWorkflowToggleBody,
   ZapInventoryPushBody,
   type AutomationInventoryResponse,
+  type N8nInsightsResponse,
   type N8nWorkflowToggleResult,
 } from "@awm/shared";
+import { Query } from "@nestjs/common";
 
 import { MinRole, RolesGuard, currentUser } from "../auth/roles.guard";
 import { env } from "../config/env";
 import { AutomationsService } from "./automations.service";
+import { N8nInsightsService } from "./n8n-insights.service";
 
 @Controller()
 @UseGuards(RolesGuard)
 export class AutomationsController {
-  constructor(private readonly automations: AutomationsService) {}
+  constructor(
+    private readonly automations: AutomationsService,
+    private readonly n8nInsights: N8nInsightsService,
+  ) {}
+
+  /** n8n execution overview (prod executions, failure rate, runtime, per-day). */
+  @Get("n8n/insights")
+  insights(@Query("days") days: string | undefined): Promise<N8nInsightsResponse> {
+    const window = days === "30" ? 30 : 7;
+    return this.n8nInsights.insights(window);
+  }
 
   /** Inventory of every workflow/Zap across connected sources, with failure counts. */
   @Get("automations")

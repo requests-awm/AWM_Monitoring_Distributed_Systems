@@ -27,6 +27,41 @@ export interface AutomationInventoryResponse {
   rows: AutomationRow[];
 }
 
+/** One aggregation window of n8n execution metrics. */
+export interface N8nInsightsPeriod {
+  /** Executions in any non-manual mode (trigger, webhook, schedule, retry, …). */
+  prodExecutions: number;
+  failedExecutions: number;
+  /** failed / prod, in percent. Null when there were no executions. */
+  failureRatePct: number | null;
+  /** Mean wall-clock runtime of finished executions. Null when none finished. */
+  avgRunMs: number | null;
+}
+
+export interface N8nInsightsDay {
+  /** UTC calendar date, YYYY-MM-DD. */
+  date: string;
+  total: number;
+  failed: number;
+  avgRunMs: number | null;
+}
+
+/** Response of `GET /api/n8n/insights?days=7|30`. */
+export interface N8nInsightsResponse {
+  days: number;
+  generatedAt: string;
+  /**
+   * True when the execution history was longer than the fetch cap, so the
+   * previous-period comparison (and possibly the window itself) is partial.
+   */
+  truncated: boolean;
+  /** Executions fetched from n8n to build this response. */
+  sampleSize: number;
+  current: N8nInsightsPeriod;
+  previous: N8nInsightsPeriod;
+  byDay: N8nInsightsDay[];
+}
+
 /** Body of `POST /api/automations/n8n/:workflowId/toggle`. */
 export const N8nWorkflowToggleBody = z.object({
   active: z.boolean(),

@@ -10,8 +10,13 @@ import { WorkerModule } from "./worker.module";
 
 // The worker is a headless application context; containers and host platforms
 // still need something to probe, so expose a bare liveness endpoint.
-// PORT (injected by Cloud Run/Heroku-style hosts) wins over WORKER_PORT.
-const healthPort = Number(process.env.PORT ?? "") > 0 ? Number(process.env.PORT) : env.WORKER_PORT;
+// PORT (injected by Cloud Run/Heroku-style hosts) wins over WORKER_PORT — but
+// only in production: in local dev the shared .env sets PORT for the API, and
+// honoring it here would make the worker steal the API's port.
+const healthPort =
+  env.NODE_ENV === "production" && Number(process.env.PORT ?? "") > 0
+    ? Number(process.env.PORT)
+    : env.WORKER_PORT;
 
 function startHealthServer(logger: Logger): Server {
   const server = createServer((req, res) => {
