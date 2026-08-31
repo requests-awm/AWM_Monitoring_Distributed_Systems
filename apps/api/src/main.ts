@@ -19,6 +19,20 @@ async function bootstrap(): Promise<void> {
   app.enableShutdownHooks();
   app.set("trust proxy", 1);
 
+  // Page loads on secondary hosts (e.g. the raw *.run.app URL) bounce to the
+  // canonical domain so browsers only ever store the access token on one origin.
+  // API and probe traffic is left alone — machines don't follow bookmarks.
+  if (env.CANONICAL_HOST !== undefined) {
+    const canonical = env.CANONICAL_HOST;
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      if (req.method !== "GET" || req.path.startsWith("/api") || req.hostname === canonical) {
+        return next();
+      }
+      res.redirect(301, `https://${canonical}${req.originalUrl}`);
+    });
+    logger.log(`Canonical host redirect enabled → ${canonical}`);
+  }
+
   if (env.ACCESS_TOKEN !== undefined) {
     app.use(accessTokenGate(env.ACCESS_TOKEN));
     logger.log("Access-token gate enabled (X-Access-Token required on /api)");

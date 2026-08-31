@@ -18,6 +18,10 @@ export const env = parseEnv(
     ACCESS_TOKEN: z.string().min(24).optional(),
     // Built dashboard to serve as the SPA; defaults to apps/dashboard/dist when present.
     DASHBOARD_DIST: z.string().min(1).optional(),
+    // When set (hostname only, e.g. awmappmonitor.ascotwm.com), page loads on any
+    // other host 301 to it — keeps the dashboard on a single origin so the stored
+    // access token is only ever needed in one place.
+    CANONICAL_HOST: z.string().min(1).optional(),
     // Live mode switch: set → Prisma repository against the shared DB; unset → in-memory sample store.
     DATABASE_URL: z.string().url().optional(),
     // AES-256-GCM key (base64, 32 bytes) for secrets at rest (n8n API keys, channel credentials).
