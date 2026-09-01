@@ -90,8 +90,12 @@ export default function WorkflowFailuresPage(): JSX.Element {
 
   const events = useMemo<WorkflowFailureEvent[]>(() => {
     const rows = query.data?.events ?? [];
+    // Newest arrivals first: receivedAt beats occurredAt so a just-detected
+    // failure always tops the list, even when the sweep backfills older ones.
     return [...rows].sort(
-      (a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime(),
+      (a, b) =>
+        new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime() ||
+        new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime(),
     );
   }, [query.data]);
 

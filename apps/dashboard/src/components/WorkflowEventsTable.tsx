@@ -68,6 +68,14 @@ export function WorkflowEventsTable({
                 >
                   <td className="max-w-[420px] px-4 py-3">
                     <div className="flex items-center gap-2">
+                      {Date.now() - new Date(e.receivedAt).getTime() < 10 * 60_000 ? (
+                        <span
+                          aria-label="Newly detected"
+                          title={`Detected ${timeAgo(e.receivedAt)}`}
+                          className="inline-block h-2 w-2 shrink-0 rounded-full"
+                          style={{ background: "var(--accent)" }}
+                        />
+                      ) : null}
                       <span className="truncate font-medium">{e.workflowName}</span>
                       <EventTypeChip eventType={e.eventType} />
                     </div>
