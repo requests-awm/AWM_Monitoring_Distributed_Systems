@@ -1,6 +1,8 @@
 import { useMutation, useQueryClient, type UseMutationResult } from "@tanstack/react-query";
 import type { WorkflowEventActionResult, WorkflowEventsResponse } from "@awm/shared";
 
+import { apiSend } from "./api";
+
 export type WorkflowEventActionName =
   | "acknowledge"
   | "resolve"
@@ -16,17 +18,12 @@ export interface WorkflowEventActionInput {
   body?: unknown;
 }
 
-async function postAction({ id, action, body }: WorkflowEventActionInput): Promise<WorkflowEventActionResult> {
-  const res = await fetch(`/api/workflow-events/${encodeURIComponent(id)}/${action}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const detail = (await res.json().catch(() => null)) as { message?: string } | null;
-    throw new Error(detail?.message ?? `${action} failed with status ${res.status}`);
-  }
-  return (await res.json()) as WorkflowEventActionResult;
+function postAction({ id, action, body }: WorkflowEventActionInput): Promise<WorkflowEventActionResult> {
+  return apiSend<WorkflowEventActionResult>(
+    `/api/workflow-events/${encodeURIComponent(id)}/${action}`,
+    "POST",
+    body,
+  );
 }
 
 /** Mutations for the failure inbox; the updated event is patched into the query cache immediately. */

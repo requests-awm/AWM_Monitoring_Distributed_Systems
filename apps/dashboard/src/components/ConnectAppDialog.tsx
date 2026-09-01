@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { WorkflowPlatform, WorkflowSourceCreateResult } from "@awm/shared";
 
+import { apiSend } from "../lib/api";
 import { ActionButton } from "./WorkflowBadges";
 
 const PLATFORM_OPTIONS: { value: WorkflowPlatform; label: string }[] = [
@@ -114,18 +115,10 @@ export function ConnectAppDialog({
     }
     setSubmitting(true);
     setError(null);
-    fetch("/api/workflow-sources", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: name.trim(), platform }),
+    apiSend<WorkflowSourceCreateResult>("/api/workflow-sources", "POST", {
+      name: name.trim(),
+      platform,
     })
-      .then(async (res) => {
-        if (!res.ok) {
-          const detail = (await res.json().catch(() => null)) as { message?: string } | null;
-          throw new Error(detail?.message ?? `Connect failed with status ${res.status}`);
-        }
-        return (await res.json()) as WorkflowSourceCreateResult;
-      })
       .then((r) => {
         setResult(r);
         onConnected(r.source.name);

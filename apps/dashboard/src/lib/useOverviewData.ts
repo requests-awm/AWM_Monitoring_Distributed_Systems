@@ -1,12 +1,10 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import type { OverviewResponse } from "@awm/shared";
 
-async function fetchOverview(): Promise<OverviewResponse> {
-  const res = await fetch("/api/overview");
-  if (!res.ok) {
-    throw new Error(`Overview request failed: ${res.status}`);
-  }
-  return (await res.json()) as OverviewResponse;
+import { apiGet } from "./api";
+
+function fetchOverview(): Promise<OverviewResponse> {
+  return apiGet<OverviewResponse>("/api/overview");
 }
 
 /** Live overview data from the API. Refetches every 15s so the dashboard updates on its own. */
