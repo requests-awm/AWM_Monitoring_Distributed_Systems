@@ -1,0 +1,83 @@
+name: Daily work log
+
+on:
+  schedule:
+    # 16:30 SAST = 14:30 UTC, fixed — South Africa has no DST.
+    - cron: "30 14 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  worklog:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Africa/Johannesburg
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Collect the day's commits
+        id: commits
+        run: |
+          git log --since="24 hours ago" --no-merges --pretty=format:'COMMIT: %s%n%b' > commits.txt
+          git log --since="24 hours ago" --no-merges --pretty=format:'- %s' > subjects.txt
+          COUNT=$(git log --since="24 hours ago" --no-merges --pretty=format:'%H' | sed '/^$/d' | wc -l | tr -d ' ')
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "Commits in window: $COUNT"
+
+      - name: Nothing to report
+        if: steps.commits.outputs.count == '0'
+        run: echo "No commits in the last 24 hours — not posting."
+
+      - name: Summarise with LLM (fall back to raw subjects)
+        if: steps.commits.outputs.count != '0'
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: |
+          SYSTEM_PROMPT="You write an end-of-day work report for a software project, aimed at a manager who does not read code. Input is today's git commits (subjects and bodies). Structure the report as PLAIN TEXT with these sections, in this order, using these exact uppercase headers on their own line: HEADLINE (2-3 sentences: the day's biggest outcome, PR numbers if present, and scale), IN PLAIN TERMS (a short paragraph explaining the area of work for a non-technical reader; include only when the work needs explaining), WHAT WE DELIVERED TODAY (numbered items '1.' '2.' etc; each starts with a short lead sentence naming the deliverable, then 1-2 sentences on what it does and why it matters), HOW WE WORKED (2-4 dash bullets, only practices actually evidenced in the commits such as tests added, fail-closed design, verification), STATUS (which PRs or commits landed, whether deployed), HONEST NEXT STEPS (dash bullets, only pending items the commit messages themselves mention; never invent any). Omit any section you cannot fill honestly from the commits. UK English, direct tone, no jargon, no markdown, no em dashes, no preamble before HEADLINE. Only describe what the commits actually say; never invent work."
+          jq -n \
+            --arg system "$SYSTEM_PROMPT" \
+            --rawfile commits commits.txt \
+            '{model: "gpt-5-mini", messages: [{role: "system", content: $system}, {role: "user", content: $commits}]}' \
+            > payload.json
+          SUMMARY=$(curl -sf --max-time 120 https://api.openai.com/v1/chat/completions \
+            -H "Authorization: Bearer $LLM_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d @payload.json | jq -r '.choices[0].message.content // empty' || true)
+          if [ -z "$SUMMARY" ]; then
+            echo "LLM call failed or returned empty — falling back to raw commit subjects."
+            SUMMARY=$(cat subjects.txt)
+          fi
+          printf '%s\n' "$SUMMARY" > summary.txt
+
+      - name: Post to Asana
+        if: steps.commits.outputs.count != '0'
+        env:
+          ASANA_PAT: ${{ secrets.ASANA_PAT }}
+          ASANA_TASK_URL: ${{ vars.ASANA_TASK_URL }}
+        run: |
+          if [ -z "$ASANA_TASK_URL" ]; then
+            echo "ASANA_TASK_URL repo variable is not set." >&2
+            exit 1
+          fi
+          GID=$(printf '%s' "$ASANA_TASK_URL" | grep -oE '[0-9]{6,}' | tail -1)
+          if [ -z "$GID" ]; then
+            echo "Could not extract a task gid from ASANA_TASK_URL." >&2
+            exit 1
+          fi
+          HEADER="Daily work log - $(date +'%A %-d %B %Y') (${GITHUB_REPOSITORY##*/})"
+          COUNT="${{ steps.commits.outputs.count }}"
+          {
+            printf '%s\n\n' "$HEADER"
+            cat summary.txt
+            printf '\n\n%s commit(s) pushed today.\n' "$COUNT"
+          } > comment.txt
+          jq -n --rawfile text comment.txt '{data: {text: $text}}' > story.json
+          curl -sf --max-time 60 "https://app.asana.com/api/1.0/tasks/${GID}/stories" \
+            -H "Authorization: Bearer $ASANA_PAT" \
+            -H "Content-Type: application/json" \
+            -d @story.json > /dev/null
+          echo "Posted work log to Asana task $GID."
