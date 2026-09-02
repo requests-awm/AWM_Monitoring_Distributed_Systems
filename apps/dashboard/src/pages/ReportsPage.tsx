@@ -63,6 +63,9 @@ function ApiUsageSection(): JSX.Element {
           today: pRows.filter((r) => r.date === today).reduce((a, r) => a + r.calls, 0),
           week: pRows.filter((r) => week.includes(r.date)).reduce((a, r) => a + r.calls, 0),
           weekErrors: pRows.filter((r) => week.includes(r.date)).reduce((a, r) => a + r.errors, 0),
+          weekCostUsd: pRows
+            .filter((r) => week.includes(r.date))
+            .reduce((a, r) => a + (r.units["cost_usd"] ?? 0), 0),
           perDay,
           max: Math.max(1, ...perDay.map((d) => d.calls)),
         };
@@ -98,6 +101,9 @@ function ApiUsageSection(): JSX.Element {
                   <th className="px-4 py-2.5 text-right font-medium">Today</th>
                   <th className="px-4 py-2.5 text-right font-medium">7 days</th>
                   <th className="px-4 py-2.5 text-right font-medium">Errors 7d</th>
+                  {providers.some((p) => p.weekCostUsd > 0) ? (
+                    <th className="px-4 py-2.5 text-right font-medium">Cost 7d</th>
+                  ) : null}
                   <th className="px-4 py-2.5 font-medium">Last 14 days</th>
                 </tr>
               </thead>
@@ -135,6 +141,11 @@ function ApiUsageSection(): JSX.Element {
                         {p.weekErrors.toLocaleString()}
                       </span>
                     </td>
+                    {providers.some((x) => x.weekCostUsd > 0) ? (
+                      <td className="px-4 py-2.5 text-right">
+                        {p.weekCostUsd > 0 ? `$${p.weekCostUsd.toFixed(2)}` : "—"}
+                      </td>
+                    ) : null}
                     <td className="px-4 py-2.5">
                       <div className="flex items-end gap-[2px]" style={{ height: 28, width: 140 }} aria-hidden>
                         {p.perDay.map((d) => (

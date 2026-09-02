@@ -12,6 +12,7 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import {
+  ProviderCostsPushBody,
   ProviderReferencesPushBody,
   UsageReportBody,
   type ProviderReference,
@@ -62,6 +63,21 @@ export class UsageStore {
 
   rows(): UsageDayRow[] {
     return [...this.buckets.values()];
+  }
+
+  /** Billing pulls: replace semantics per (app, provider, date) — never additive. */
+  setCosts(app: string, costs: ProviderCostsPushBody["costs"]): number {
+    for (const c of costs) {
+      const key = `${app}|${c.provider}||${c.date}`;
+      const row =
+        this.buckets.get(key) ??
+        ({ app, provider: c.provider, automation: null, date: c.date, calls: 0, errors: 0, units: {} } as UsageDayRow);
+      row.units["cost_usd"] = c.cost_usd;
+      if (c.calls > 0) row.calls = c.calls;
+      this.buckets.set(key, row);
+    }
+    this.prune();
+    return costs.length;
   }
 
   setReferences(app: string, refs: ProviderReference[]): number {
@@ -136,6 +152,26 @@ export class UsageController {
       externalId: r.external_id ?? null,
     }));
     return { stored: this.store.setReferences(parsed.data.app, refs) };
+  }
+
+  /** Worker pushes daily provider spend (OpenAI costs API, Twilio usage records). */
+  @Post("internal/provider-costs")
+  @HttpCode(200)
+  costs(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() body: unknown,
+  ): { stored: number } {
+    if (authorization !== `Bearer ${env.WORKER_TOKEN}`) {
+      throw new UnauthorizedException("Invalid worker token");
+    }
+    const parsed = ProviderCostsPushBody.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException({
+        message: "Provider costs validation failed",
+        issues: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`),
+      });
+    }
+    return { stored: this.store.setCosts(parsed.data.app, parsed.data.costs) };
   }
 
   /** Aggregated usage for the dashboard. */

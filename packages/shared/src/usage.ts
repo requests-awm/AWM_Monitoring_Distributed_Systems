@@ -60,6 +60,27 @@ export interface UsageResponse {
   references: ProviderReference[];
 }
 
+/**
+ * Body of `POST /api/internal/provider-costs` — worker pushes billing pulls
+ * (OpenAI costs API, Twilio usage records). Replace semantics per
+ * (provider, date): re-pushing a day overwrites it, never double-counts.
+ */
+export const ProviderCostsPushBody = z.object({
+  app: z.string().min(1).max(80).default("provider-billing"),
+  costs: z
+    .array(
+      z.object({
+        provider: z.string().min(2).max(60).transform((v) => v.toLowerCase()),
+        /** UTC calendar date, YYYY-MM-DD. */
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        cost_usd: z.number().min(0),
+        calls: z.number().int().min(0).default(0),
+      }),
+    )
+    .max(1000),
+});
+export type ProviderCostsPushBody = z.infer<typeof ProviderCostsPushBody>;
+
 /** Body of `POST /api/internal/provider-references` — worker pushes the derived map. */
 export const ProviderReferencesPushBody = z.object({
   app: z.string().min(1).max(80),

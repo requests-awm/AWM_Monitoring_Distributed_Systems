@@ -24,6 +24,12 @@ export const env = parseEnv(
     N8N_API_KEY: z.string().min(1).optional(),
     INGEST_TOKEN_N8N: z.string().min(16).optional(),
     SWEEP_INTERVAL_MS: z.coerce.number().int().min(60_000).default(300_000),
+    // Provider billing pulls (cost tracking) — each provider activates only
+    // when its credentials are present. OpenAI costs need an ADMIN key
+    // (api.openai.com/v1/organization/costs rejects project keys).
+    OPENAI_ADMIN_KEY: z.string().min(1).optional(),
+    TWILIO_ACCOUNT_SID: z.string().min(1).optional(),
+    TWILIO_AUTH_TOKEN: z.string().min(1).optional(),
   }).superRefine((v, ctx) => {
     if (v.NODE_ENV === "production" && v.WORKER_TOKEN === "dev-worker-token-sample") {
       ctx.addIssue({
