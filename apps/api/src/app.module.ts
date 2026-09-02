@@ -16,6 +16,7 @@ import {
   MaintenanceController,
   ReportsController,
 } from "./monitoring/settings.controller";
+import { StatusController } from "./monitoring/status.controller";
 import { SettingsService } from "./monitoring/settings.service";
 import { OverviewController } from "./overview/overview.controller";
 import { OverviewService } from "./overview/overview.service";
@@ -42,6 +43,7 @@ import { WorkflowEventsService } from "./workflow-events/workflow-events.service
     AlertRulesController,
     MaintenanceController,
     ReportsController,
+    StatusController,
     InternalController,
     HeartbeatsController,
     MiscController,

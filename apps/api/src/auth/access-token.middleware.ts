@@ -12,7 +12,8 @@ import { sha256Hex } from "../lib/secrets";
  * shell is harmless without data, and the dashboard needs to load in order
  * to prompt for the token.
  */
-const OPEN_PREFIXES = ["/api/health", "/api/ingest/", "/api/heartbeats/", "/api/internal/"];
+// /api/status is deliberately public: names + up/down only, no configuration.
+const OPEN_PREFIXES = ["/api/health", "/api/ingest/", "/api/heartbeats/", "/api/internal/", "/api/status"];
 
 export function accessTokenGate(accessToken: string): (req: Request, res: Response, next: NextFunction) => void {
   // Compare digests, not raw strings: constant length makes timingSafeEqual usable.

@@ -7,6 +7,7 @@ import MonitorsPage from "./pages/MonitorsPage";
 import OverviewDashboard from "./pages/OverviewDashboard";
 import ReportsPage from "./pages/ReportsPage";
 import SettingsPage from "./pages/SettingsPage";
+import StatusPage from "./pages/StatusPage";
 import WorkflowFailuresPage from "./pages/WorkflowFailuresPage";
 
 const PAGES = {
@@ -22,6 +23,9 @@ const PAGES = {
 
 export default function App(): JSX.Element {
   const route = useRoute();
+  if (route === "status") {
+    return <StatusPage />; // public page — no nav, no access-gate prompt
+  }
   const Page = PAGES[route];
   return (
     <>

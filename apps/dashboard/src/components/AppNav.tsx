@@ -8,7 +8,8 @@ export type Route =
   | "automations"
   | "maintenance"
   | "reports"
-  | "settings";
+  | "settings"
+  | "status";
 
 const ROUTES: { route: Route; hash: string; label: string }[] = [
   { route: "overview", hash: "#/", label: "Overview" },
@@ -19,7 +20,10 @@ const ROUTES: { route: Route; hash: string; label: string }[] = [
   { route: "maintenance", hash: "#/maintenance", label: "Maintenance" },
   { route: "reports", hash: "#/reports", label: "Reports" },
   { route: "settings", hash: "#/settings", label: "Settings" },
+  // Public status page — reachable by hash, deliberately absent from the nav tabs.
+  { route: "status", hash: "#/status", label: "Status" },
 ];
+const NAV_ROUTES = ROUTES.filter((r) => r.route !== "status");
 
 /** Hash-based routing keeps us dependency-free until auth forces a real router. */
 export function useRoute(): Route {
@@ -65,7 +69,7 @@ export function AppNav({ route }: { route: Route }): JSX.Element {
       <div className="mx-auto flex max-w-[1200px] flex-wrap items-center gap-4 px-6 py-3">
         <span className="text-sm font-semibold">AWM Monitoring</span>
         <div className="flex items-center gap-1">
-          {ROUTES.map((r) => {
+          {NAV_ROUTES.map((r) => {
             const active = r.route === route;
             return (
               <a

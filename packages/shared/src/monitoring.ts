@@ -323,6 +323,27 @@ export interface CurrentUserDto {
 }
 
 // ---------------------------------------------------------------------------
+// Public status page (unauthenticated — names and states only, never config)
+// ---------------------------------------------------------------------------
+
+export interface PublicStatusMonitor {
+  name: string;
+  status: "operational" | "degraded" | "down" | "maintenance" | "pending";
+  uptime24hPct: number | null;
+}
+
+export interface PublicStatusProject {
+  name: string;
+  monitors: PublicStatusMonitor[];
+}
+
+export interface PublicStatusResponse {
+  generatedAt: string;
+  overall: "operational" | "attention" | "critical";
+  projects: PublicStatusProject[];
+}
+
+// ---------------------------------------------------------------------------
 // Reports
 // ---------------------------------------------------------------------------
 
