@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 
 import { isLiveMode } from "./config/env";
 import { HealthController } from "./health/health.controller";
+import { AnomalyDetector } from "./monitoring/anomaly.detector";
 import { IncidentEngine } from "./monitoring/incident.engine";
 import { IncidentsController } from "./monitoring/incidents.controller";
 import { IncidentsService } from "./monitoring/incidents.service";
@@ -62,6 +63,7 @@ import { WorkflowEventsService } from "./workflow-events/workflow-events.service
     SettingsService,
     IncidentEngine,
     NotificationDispatcher,
+    AnomalyDetector,
     WorkflowEventsService,
     AutomationsService,
     N8nInsightsService,

@@ -381,6 +381,27 @@ export class MonitoringStore {
       },
       heartbeatToken: null,
     });
+    // Fed by the API-side anomaly detector (n8n insights comparison), never
+    // by the worker — synthetic_workflow is skipped in the due endpoint.
+    if (env.N8N_API_KEY !== undefined) {
+      seedMonitor({
+        id: "mon-n8n-failure-rate",
+        name: "n8n failure-rate anomaly",
+        description:
+          "Alerts when today's n8n failure rate runs more than 2× the 7-day baseline (with a 2% floor)",
+        projectId: platform.id,
+        environmentId: "env-platform-prod",
+        monitorType: "synthetic_workflow",
+        checkIntervalMinutes: 15,
+        timeoutMs: 30_000,
+        retryCount: 0,
+        severity: "high",
+        tags: ["n8n", "anomaly"],
+        enabled: true,
+        configuration: { baselineDays: 7, multiplier: 2, floorPct: 2, minExecutionsToday: 20 },
+        heartbeatToken: null,
+      });
+    }
     // The 1-minute demo heartbeat exists to show missed-job detection; on
     // real deployments (SEED_DEMO_DATA=false) it would just be a noise machine.
     if (seedDemoData) {

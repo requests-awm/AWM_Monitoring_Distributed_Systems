@@ -44,8 +44,11 @@ export class InternalController {
     assertWorker(authorization);
     const now = Date.now();
     const jobs: MonitorJob[] = [];
+    // Types with no worker executor: heartbeats wait for pings, synthetic
+    // monitors are fed by API-side detectors (e.g. the n8n anomaly detector).
+    const NOT_WORKER_RUN = new Set(["heartbeat", "synthetic_workflow", "email_canary"]);
     for (const monitor of this.store.activeMonitors()) {
-      if (!monitor.enabled || monitor.monitorType === "heartbeat") continue;
+      if (!monitor.enabled || NOT_WORKER_RUN.has(monitor.monitorType)) continue;
       if (monitor.nextDueAt > now) continue;
       // Claim: advance the schedule so a second worker replica won't double-run it.
       monitor.nextDueAt = now + monitor.checkIntervalMinutes * 60_000;
