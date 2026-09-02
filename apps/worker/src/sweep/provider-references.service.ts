@@ -4,6 +4,9 @@ import { env } from "../config/env";
 
 const CRAWL_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const BOOT_DELAY_MS = 2 * 60_000; // let the sweep's first pass finish first
+// The API keeps references in memory, so a redeploy wipes them — re-push the
+// cached crawl result often enough that the gap stays short.
+const REPUSH_INTERVAL_MS = 15 * 60_000;
 
 /** node.type substring → provider name (lowercase, matches usage reporting). */
 const NODE_TYPE_PROVIDERS: [string, string][] = [
@@ -50,6 +53,8 @@ export class ProviderReferencesService implements OnModuleInit, OnModuleDestroy 
   private readonly logger = new Logger(ProviderReferencesService.name);
   private timer: NodeJS.Timeout | null = null;
   private bootTimer: NodeJS.Timeout | null = null;
+  private repushTimer: NodeJS.Timeout | null = null;
+  private lastReferences: { provider: string; automation: string; external_id: string }[] | null = null;
 
   onModuleInit(): void {
     if (
@@ -61,11 +66,30 @@ export class ProviderReferencesService implements OnModuleInit, OnModuleDestroy 
     }
     this.bootTimer = setTimeout(() => void this.crawl(), BOOT_DELAY_MS);
     this.timer = setInterval(() => void this.crawl(), CRAWL_INTERVAL_MS);
+    this.repushTimer = setInterval(() => void this.push(), REPUSH_INTERVAL_MS);
   }
 
   onModuleDestroy(): void {
     if (this.timer !== null) clearInterval(this.timer);
     if (this.bootTimer !== null) clearTimeout(this.bootTimer);
+    if (this.repushTimer !== null) clearInterval(this.repushTimer);
+  }
+
+  private async push(): Promise<void> {
+    if (this.lastReferences === null) return;
+    try {
+      const res = await fetch(`${env.API_BASE_URL}/api/internal/provider-references`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${env.WORKER_TOKEN}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ app: "AWM n8n", references: this.lastReferences }),
+      });
+      if (!res.ok) this.logger.warn(`reference push rejected: ${res.status}`);
+    } catch (error) {
+      this.logger.warn(`reference push failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   private async crawl(): Promise<void> {
@@ -80,18 +104,11 @@ export class ProviderReferencesService implements OnModuleInit, OnModuleDestroy 
           references.push({ provider, automation: wf.name, external_id: wf.id });
         }
       }
-      const res = await fetch(`${env.API_BASE_URL}/api/internal/provider-references`, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${env.WORKER_TOKEN}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ app: "AWM n8n", references }),
-      });
+      this.lastReferences = references;
+      await this.push();
       this.logger.log(`provider-reference crawl complete`, {
         scanned,
         references: references.length,
-        pushed: res.ok,
       });
     } catch (error) {
       this.logger.warn(
