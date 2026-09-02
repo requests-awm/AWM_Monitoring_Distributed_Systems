@@ -78,6 +78,8 @@ export type EmailProviderMonitorConfig = z.infer<typeof EmailProviderMonitorConf
 /** Integration monitors are HTTP checks with failure classification (auth/permission/rate-limit). */
 export const ApiIntegrationMonitorConfig = HttpMonitorConfig.extend({
   service: z.string().min(1),
+  /** Check turns degraded when the provider's rate-limit headers report less than this % remaining. */
+  quotaWarnPct: z.number().min(1).max(90).default(20),
 });
 export type ApiIntegrationMonitorConfig = z.infer<typeof ApiIntegrationMonitorConfig>;
 
@@ -240,6 +242,8 @@ export interface MonitorResultDto {
   responseTimeMs: number | null;
   statusCode: number | null;
   failureReason: string | null;
+  /** % of the provider's rate-limit quota still available, when the provider reports it. */
+  quotaRemainingPct: number | null;
   checkedAt: string;
 }
 

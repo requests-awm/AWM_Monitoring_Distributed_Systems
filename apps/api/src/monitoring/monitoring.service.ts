@@ -324,6 +324,7 @@ export class MonitoringService {
 }
 
 function toResultDto(r: MonitorResultRecord): MonitorResultDto {
+  const rateLimit = r.metadata?.rateLimit as { remainingPct?: number } | undefined;
   return {
     id: r.id,
     status: r.status,
@@ -331,6 +332,8 @@ function toResultDto(r: MonitorResultRecord): MonitorResultDto {
     responseTimeMs: r.responseTimeMs,
     statusCode: r.statusCode,
     failureReason: r.failureReason,
+    quotaRemainingPct:
+      typeof rateLimit?.remainingPct === "number" ? rateLimit.remainingPct : null,
     checkedAt: r.checkedAt,
   };
 }

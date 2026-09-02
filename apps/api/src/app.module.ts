@@ -23,6 +23,7 @@ import { AutomationsController } from "./workflow-events/automations.controller"
 import { AutomationsService } from "./workflow-events/automations.service";
 import { N8nInsightsService } from "./workflow-events/n8n-insights.service";
 import { IngestController } from "./workflow-events/ingest.controller";
+import { UsageController, UsageStore } from "./workflow-events/usage.controller";
 import { InMemoryWorkflowEventsRepository } from "./workflow-events/in-memory.repository";
 import { N8nGateway } from "./workflow-events/n8n.gateway";
 import { WorkflowEventsController } from "./workflow-events/workflow-events.controller";
@@ -48,6 +49,7 @@ import { WorkflowEventsService } from "./workflow-events/workflow-events.service
     WorkflowSourcesController,
     AutomationsController,
     IngestController,
+    UsageController,
   ],
   providers: [
     OverviewService,
@@ -60,6 +62,7 @@ import { WorkflowEventsService } from "./workflow-events/workflow-events.service
     WorkflowEventsService,
     AutomationsService,
     N8nInsightsService,
+    UsageStore,
     N8nGateway,
     {
       provide: WORKFLOW_EVENTS_REPOSITORY,

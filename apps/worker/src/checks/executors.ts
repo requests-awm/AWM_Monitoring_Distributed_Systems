@@ -94,6 +94,11 @@ async function runHttp(
   const durationMs = Date.now() - started;
   const bodyText = await res.text().catch(() => "");
   const service = classify ? (config.service ?? "integration") : null;
+  const rateLimit = parseRateLimit(res.headers);
+  const metadata: Record<string, unknown> | null =
+    service !== null || rateLimit !== null
+      ? { ...(service !== null ? { service } : {}), ...(rateLimit !== null ? { rateLimit } : {}) }
+      : null;
 
   const problems: string[] = [];
   const v = config.validation;
@@ -130,7 +135,7 @@ async function runHttp(
       responseTimeMs: durationMs,
       statusCode: res.status,
       failureReason: problems.join("; ").slice(0, 1900),
-      metadata: service === null ? null : { service },
+      metadata,
       checkedAt: now(),
     };
   }
@@ -141,7 +146,19 @@ async function runHttp(
       responseTimeMs: durationMs,
       statusCode: res.status,
       failureReason: `Response ${durationMs}ms exceeded threshold ${v.maxDurationMs}ms`,
-      metadata: service === null ? null : { service },
+      metadata,
+      checkedAt: now(),
+    };
+  }
+  const quotaWarnPct = classify ? ((config as { quotaWarnPct?: number }).quotaWarnPct ?? 20) : null;
+  if (quotaWarnPct !== null && rateLimit !== null && rateLimit.remainingPct <= quotaWarnPct) {
+    return {
+      status: "degraded",
+      success: true,
+      responseTimeMs: durationMs,
+      statusCode: res.status,
+      failureReason: `Provider quota low: ${rateLimit.remaining}/${rateLimit.limit} requests remaining (${rateLimit.remainingPct}%)`,
+      metadata,
       checkedAt: now(),
     };
   }
@@ -151,9 +168,41 @@ async function runHttp(
     responseTimeMs: durationMs,
     statusCode: res.status,
     failureReason: null,
-    metadata: service === null ? null : { service },
+    metadata,
     checkedAt: now(),
   };
+}
+
+interface RateLimitInfo {
+  limit: number;
+  remaining: number;
+  remainingPct: number;
+  resetAt: string | null;
+}
+
+/**
+ * Providers report quota differently: plain x-ratelimit-* (Insightly, GitHub),
+ * suffixed -requests/-tokens (OpenAI). Requests-quota wins when both exist.
+ */
+function parseRateLimit(headers: Headers): RateLimitInfo | null {
+  const num = (...names: string[]): number | null => {
+    for (const name of names) {
+      const v = headers.get(name);
+      if (v !== null && v.trim() !== "" && Number.isFinite(Number(v))) return Number(v);
+    }
+    return null;
+  };
+  const limit = num("x-ratelimit-limit", "x-ratelimit-limit-requests", "ratelimit-limit");
+  const remaining = num("x-ratelimit-remaining", "x-ratelimit-remaining-requests", "ratelimit-remaining");
+  if (limit === null || remaining === null || limit <= 0) return null;
+  const reset = headers.get("x-ratelimit-reset") ?? headers.get("ratelimit-reset");
+  let resetAt: string | null = null;
+  if (reset !== null && Number.isFinite(Number(reset))) {
+    const n = Number(reset);
+    // epoch seconds vs delta seconds — epochs are huge.
+    resetAt = new Date(n > 10_000_000 ? n * 1000 : Date.now() + n * 1000).toISOString();
+  }
+  return { limit, remaining, remainingPct: Math.round((remaining / limit) * 1000) / 10, resetAt };
 }
 
 function jsonPath(bodyText: string, path: string): unknown {

@@ -4,3 +4,4 @@ export * from "./overview";
 export * from "./workflow-events";
 export * from "./monitoring";
 export * from "./automations";
+export * from "./usage";

@@ -398,6 +398,15 @@ function MonitorDrawer({
                       <span className="tabular-nums text-xs" style={{ color: "var(--ink-secondary)" }}>
                         {r.responseTimeMs !== null ? `${r.responseTimeMs}ms` : "—"}
                       </span>
+                      {r.quotaRemainingPct !== null ? (
+                        <span
+                          className="tabular-nums text-xs"
+                          title="Provider rate-limit quota remaining"
+                          style={{ color: r.quotaRemainingPct <= 20 ? "var(--status-warning)" : "var(--ink-muted)" }}
+                        >
+                          quota {r.quotaRemainingPct}%
+                        </span>
+                      ) : null}
                       {r.failureReason !== null ? (
                         <span className="min-w-0 truncate text-xs" style={{ color: "var(--status-critical)" }} title={r.failureReason}>
                           {r.failureReason}
