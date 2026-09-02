@@ -62,6 +62,33 @@ export interface N8nInsightsResponse {
   byDay: N8nInsightsDay[];
 }
 
+export interface N8nExecutionSummary {
+  id: string;
+  status: string;
+  mode: string;
+  startedAt: string | null;
+  stoppedAt: string | null;
+  durationMs: number | null;
+  /** Populated for recent failed executions (detail fetch, error object only). */
+  errorMessage: string | null;
+  errorNode: string | null;
+  url: string;
+}
+
+/** Response of `GET /api/n8n/workflows/:id/inspect` — the in-app troubleshooting view. */
+export interface N8nWorkflowInspection {
+  workflowId: string;
+  name: string;
+  active: boolean;
+  editorUrl: string;
+  nodes: { name: string; type: string }[];
+  /** Newest first, successes and failures interleaved. */
+  executions: N8nExecutionSummary[];
+  /** Failed-node tally across the inspected failures — often the diagnosis. */
+  nodeFailureCounts: Record<string, number>;
+  generatedAt: string;
+}
+
 /** Body of `POST /api/automations/n8n/:workflowId/toggle`. */
 export const N8nWorkflowToggleBody = z.object({
   active: z.boolean(),

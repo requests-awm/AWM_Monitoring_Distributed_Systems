@@ -1,5 +1,11 @@
-import { BadRequestException, Injectable, Logger } from "@nestjs/common";
-import type { N8nInsightsDay, N8nInsightsPeriod, N8nInsightsResponse } from "@awm/shared";
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import type {
+  N8nExecutionSummary,
+  N8nInsightsDay,
+  N8nInsightsPeriod,
+  N8nInsightsResponse,
+  N8nWorkflowInspection,
+} from "@awm/shared";
 
 import { env } from "../config/env";
 
@@ -94,6 +100,108 @@ export class N8nInsightsService {
     this.cache.set(days, { at: Date.now(), value });
     this.logger.log(`insights refreshed`, { days, sample: rows.length, truncated });
     return value;
+  }
+
+  /** In-app troubleshooting view: recent executions + node failure tally for one workflow. */
+  async inspect(workflowId: string): Promise<N8nWorkflowInspection> {
+    if (env.N8N_BASE_URL === undefined || env.N8N_API_KEY === undefined) {
+      throw new BadRequestException("n8n is not connected — set N8N_BASE_URL and N8N_API_KEY");
+    }
+    const base = env.N8N_BASE_URL;
+    const headers = { "X-N8N-API-KEY": env.N8N_API_KEY };
+
+    const wfRes = await fetch(`${base}/api/v1/workflows/${encodeURIComponent(workflowId)}`, {
+      headers,
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (wfRes.status === 404) throw new NotFoundException(`n8n workflow ${workflowId} not found`);
+    if (!wfRes.ok) throw new BadRequestException(`n8n workflow fetch returned ${wfRes.status}`);
+    const wf = (await wfRes.json()) as {
+      name?: string;
+      active?: boolean;
+      nodes?: { name?: string; type?: string }[];
+    };
+
+    const exRes = await fetch(
+      `${base}/api/v1/executions?workflowId=${encodeURIComponent(workflowId)}&limit=40`,
+      { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) },
+    );
+    if (!exRes.ok) throw new BadRequestException(`n8n executions fetch returned ${exRes.status}`);
+    const exBody = (await exRes.json()) as { data?: N8nExecutionRow[] };
+
+    const executions: N8nExecutionSummary[] = (exBody.data ?? []).map((row) => ({
+      id: String(row.id),
+      status: row.status ?? "unknown",
+      mode: row.mode ?? "unknown",
+      startedAt: row.startedAt ?? null,
+      stoppedAt: row.stoppedAt ?? null,
+      durationMs: runMs(row),
+      errorMessage: null,
+      errorNode: null,
+      url: `${base}/workflow/${workflowId}/executions/${String(row.id)}`,
+    }));
+
+    // Error details for the most recent failures only — the error object, never node data.
+    const nodeFailureCounts: Record<string, number> = {};
+    const failed = executions.filter((e) => e.status === "error" || e.status === "crashed").slice(0, 10);
+    for (const execution of failed) {
+      try {
+        const dRes = await fetch(
+          `${base}/api/v1/executions/${encodeURIComponent(execution.id)}?includeData=true`,
+          { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) },
+        );
+        if (!dRes.ok) continue;
+        const detail = (await dRes.json()) as {
+          data?: {
+            resultData?: {
+              error?: { message?: unknown; description?: unknown; node?: { name?: unknown } };
+              lastNodeExecuted?: unknown;
+            };
+          };
+        };
+        const rd = detail.data?.resultData;
+        if (rd?.error !== undefined) {
+          execution.errorMessage = String(rd.error.message ?? rd.error.description ?? "Execution failed").slice(0, 500);
+          const node = rd.error.node?.name ?? rd.lastNodeExecuted;
+          execution.errorNode = typeof node === "string" ? node : null;
+          if (execution.errorNode !== null) {
+            nodeFailureCounts[execution.errorNode] = (nodeFailureCounts[execution.errorNode] ?? 0) + 1;
+          }
+        }
+      } catch {
+        // a broken execution record must not sink the inspection
+      }
+    }
+
+    return {
+      workflowId,
+      name: wf.name ?? workflowId,
+      active: wf.active === true,
+      editorUrl: `${base}/workflow/${workflowId}`,
+      nodes: (wf.nodes ?? []).map((n) => ({ name: n.name ?? "?", type: (n.type ?? "?").split(".").pop() ?? "?" })),
+      executions,
+      nodeFailureCounts,
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  /** Direct retry for the inspector (event-less), same n8n endpoint the drawer uses. */
+  async retryExecution(executionId: string): Promise<{ retryExecutionId: string }> {
+    if (env.N8N_BASE_URL === undefined || env.N8N_API_KEY === undefined) {
+      throw new BadRequestException("n8n is not connected");
+    }
+    const res = await fetch(
+      `${env.N8N_BASE_URL}/api/v1/executions/${encodeURIComponent(executionId)}/retry`,
+      {
+        method: "POST",
+        headers: { "X-N8N-API-KEY": env.N8N_API_KEY, "content-type": "application/json" },
+        body: JSON.stringify({ loadWorkflow: true }),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      },
+    );
+    if (!res.ok) throw new BadRequestException(`n8n retry returned ${res.status}`);
+    const body = (await res.json()) as { id?: string | number };
+    return { retryExecutionId: String(body.id ?? "") };
   }
 
   private async fetchSince(sinceMs: number): Promise<{ rows: N8nExecutionRow[]; truncated: boolean }> {

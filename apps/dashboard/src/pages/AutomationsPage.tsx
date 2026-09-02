@@ -10,6 +10,7 @@ import type {
 
 import { Toast, type ToastState } from "../components/Toast";
 import { ActionButton, ExternalLink, PlatformChip } from "../components/WorkflowBadges";
+import { WorkflowInspectorDrawer } from "../components/WorkflowInspectorDrawer";
 import { apiGet, apiSend } from "../lib/api";
 import { timeAgo } from "../lib/time";
 
@@ -270,6 +271,7 @@ export default function AutomationsPage(): JSX.Element {
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState<ToastState | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [inspectId, setInspectId] = useState<string | null>(null);
 
   const toggleN8n = (workflowId: string, name: string, active: boolean): void => {
     if (!active && !window.confirm(`Turn OFF “${name}” on n8n? It will stop running until switched back on.`)) {
@@ -431,13 +433,21 @@ export default function AutomationsPage(): JSX.Element {
                   </td>
                   <td className="whitespace-nowrap px-4 py-2.5 text-right">
                     {r.platform === "n8n" ? (
-                      <ActionButton
-                        tone={r.active ? "default" : "accent"}
-                        disabled={togglingId === r.externalId}
-                        onClick={() => toggleN8n(r.externalId, r.name, !r.active)}
-                      >
-                        {togglingId === r.externalId ? "…" : r.active ? "Turn off" : "Turn on"}
-                      </ActionButton>
+                      <>
+                        <ActionButton
+                          tone={r.recentFailures > 0 ? "accent" : "default"}
+                          onClick={() => setInspectId(r.externalId)}
+                        >
+                          Inspect
+                        </ActionButton>{" "}
+                        <ActionButton
+                          tone={r.active ? "default" : "accent"}
+                          disabled={togglingId === r.externalId}
+                          onClick={() => toggleN8n(r.externalId, r.name, !r.active)}
+                        >
+                          {togglingId === r.externalId ? "…" : r.active ? "Turn off" : "Turn on"}
+                        </ActionButton>
+                      </>
                     ) : null}{" "}
                     {r.editorUrl !== null ? <ExternalLink href={r.editorUrl}>Editor</ExternalLink> : null}{" "}
                     {r.historyUrl !== null ? <ExternalLink href={r.historyUrl}>History</ExternalLink> : null}
@@ -448,6 +458,14 @@ export default function AutomationsPage(): JSX.Element {
           </table>
         </div>
       </section>
+
+      {inspectId !== null ? (
+        <WorkflowInspectorDrawer
+          workflowId={inspectId}
+          onClose={() => setInspectId(null)}
+          onToast={(message) => setToast({ id: Date.now(), message })}
+        />
+      ) : null}
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />
     </div>

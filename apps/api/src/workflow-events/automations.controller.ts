@@ -17,6 +17,7 @@ import {
   ZapInventoryPushBody,
   type AutomationInventoryResponse,
   type N8nInsightsResponse,
+  type N8nWorkflowInspection,
   type N8nWorkflowToggleResult,
 } from "@awm/shared";
 import { Query } from "@nestjs/common";
@@ -39,6 +40,20 @@ export class AutomationsController {
   insights(@Query("days") days: string | undefined): Promise<N8nInsightsResponse> {
     const window = days === "30" ? 30 : 7;
     return this.n8nInsights.insights(window);
+  }
+
+  /** In-app troubleshooting: recent executions + failing-node tally for one workflow. */
+  @Get("n8n/workflows/:workflowId/inspect")
+  inspect(@Param("workflowId") workflowId: string): Promise<N8nWorkflowInspection> {
+    return this.n8nInsights.inspect(workflowId);
+  }
+
+  /** Retry one n8n execution straight from the inspector. */
+  @Post("n8n/executions/:executionId/retry")
+  @MinRole("operator")
+  @HttpCode(200)
+  retryExecution(@Param("executionId") executionId: string): Promise<{ retryExecutionId: string }> {
+    return this.n8nInsights.retryExecution(executionId);
   }
 
   /** Inventory of every workflow/Zap across connected sources, with failure counts. */
