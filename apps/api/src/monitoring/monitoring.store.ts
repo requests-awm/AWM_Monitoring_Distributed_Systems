@@ -257,7 +257,9 @@ export class MonitoringStore {
     };
     this.projects.push(platform, taskBooker);
 
-    const base = `http://localhost:${env.PORT}`;
+    const base = env.SELF_BASE_URL ?? `http://localhost:${env.PORT}`;
+    const baseUrl = new URL(base);
+    const basePort = baseUrl.port !== "" ? Number(baseUrl.port) : baseUrl.protocol === "https:" ? 443 : 80;
     const seedMonitor = (m: Omit<MonitorRecord, "createdAt" | "isDeleted" | "nextDueAt" | "consecutiveFails" | "lastHeartbeatAt" | "lastMissedEmitAt">): void => {
       this.monitors.set(m.id, {
         ...m,
@@ -303,7 +305,7 @@ export class MonitoringStore {
       severity: "critical",
       tags: ["self-monitoring"],
       enabled: true,
-      configuration: { host: "localhost", port: env.PORT },
+      configuration: { host: baseUrl.hostname, port: basePort },
       heartbeatToken: null,
     });
     seedMonitor({

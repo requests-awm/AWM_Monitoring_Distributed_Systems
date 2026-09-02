@@ -38,6 +38,14 @@ export const env = parseEnv(
     // "false" hides all sample/demo data (fixture workflow events and the demo
     // heartbeat monitor) — set on deployments where only real data should show.
     SEED_DEMO_DATA: z.string().optional(),
+    // Public base URL of this API for the seeded self-monitoring checks; the
+    // worker executes checks from its own container, so localhost would probe
+    // the worker itself. Unset = localhost (correct for single-machine dev).
+    SELF_BASE_URL: z
+      .string()
+      .url()
+      .transform((u) => u.replace(/\/+$/, ""))
+      .optional(),
     // Set for the worker sweep; the API reads it for the automations inventory
     // and to skip fake n8n seed data.
     N8N_BASE_URL: z
