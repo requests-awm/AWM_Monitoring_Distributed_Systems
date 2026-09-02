@@ -54,6 +54,10 @@ export const env = parseEnv(
       .transform((u) => u.replace(/\/+$/, ""))
       .optional(),
     N8N_API_KEY: z.string().min(1).optional(),
+    // OpenAI-compatible key/model for generated fix suggestions; unset = the
+    // suggest-fix endpoint reports the feature as not configured.
+    LLM_API_KEY: z.string().min(1).optional(),
+    LLM_MODEL: z.string().min(1).default("gpt-5-mini"),
   }).superRefine((v, ctx) => {
     if (v.NODE_ENV !== "production") return;
     if (v.ACCESS_TOKEN === undefined) {

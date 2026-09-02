@@ -69,6 +69,8 @@ export function WorkflowEventDrawer({
   onIgnore,
   onRetry,
   onAssign,
+  onSuggestFix,
+  suggestingFix,
   onApplyFix,
   onResubmit,
 }: {
@@ -79,6 +81,8 @@ export function WorkflowEventDrawer({
   onIgnore: () => void;
   onRetry: () => void;
   onAssign: (assignee: string) => void;
+  onSuggestFix: () => void;
+  suggestingFix: boolean;
   onApplyFix: () => void;
   onResubmit: (payload: Record<string, unknown>) => void;
 }): JSX.Element {
@@ -86,6 +90,15 @@ export function WorkflowEventDrawer({
   const [panel, setPanel] = useState<"none" | "fix" | "resubmit">("none");
   const [draft, setDraft] = useState("");
   const [draftError, setDraftError] = useState<string | null>(null);
+
+  // A freshly generated suggestion opens itself — the user asked to see it.
+  const hadSuggestion = useRef(event.fixSuggestion !== null);
+  useEffect(() => {
+    if (!hadSuggestion.current && event.fixSuggestion !== null) {
+      hadSuggestion.current = true;
+      setPanel("fix");
+    }
+  }, [event.fixSuggestion]);
 
   useEffect(() => {
     closeRef.current?.focus();
@@ -176,6 +189,10 @@ export function WorkflowEventDrawer({
                 onClick={() => setPanel(panel === "fix" ? "none" : "fix")}
               >
                 ✦ Suggest fix
+              </ActionButton>
+            ) : event.platform === "n8n" ? (
+              <ActionButton tone="accent" disabled={suggestingFix} onClick={onSuggestFix}>
+                {suggestingFix ? "✦ Generating…" : "✦ Generate fix suggestion"}
               </ActionButton>
             ) : null}
             {event.canResubmit && event.inputPayload !== null ? (

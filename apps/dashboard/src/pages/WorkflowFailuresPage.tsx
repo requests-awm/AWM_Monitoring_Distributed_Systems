@@ -275,6 +275,14 @@ export default function WorkflowFailuresPage(): JSX.Element {
               { assignee: assignee === "" ? null : assignee },
             )
           }
+          onSuggestFix={() =>
+            run(selected.id, "suggest-fix", `Fix suggestion generated for “${selected.workflowName}”`)
+          }
+          suggestingFix={
+            action.isPending &&
+            action.variables?.action === "suggest-fix" &&
+            action.variables.id === selected.id
+          }
           onApplyFix={() =>
             run(selected.id, "apply-fix", `Fix applied to “${selected.workflowName}” and retry queued`)
           }

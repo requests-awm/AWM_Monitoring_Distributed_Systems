@@ -9,6 +9,7 @@ export type WorkflowEventActionName =
   | "ignore"
   | "assign"
   | "retry"
+  | "suggest-fix"
   | "apply-fix"
   | "resubmit";
 

@@ -6,11 +6,15 @@ import {
   type WorkflowEventsResponse,
 } from "@awm/shared";
 
+import { FixSuggesterService } from "./fix-suggester.service";
 import { WorkflowEventsService } from "./workflow-events.service";
 
 @Controller("workflow-events")
 export class WorkflowEventsController {
-  constructor(private readonly workflowEvents: WorkflowEventsService) {}
+  constructor(
+    private readonly workflowEvents: WorkflowEventsService,
+    private readonly fixSuggester: FixSuggesterService,
+  ) {}
 
   @Get()
   getEvents(): Promise<WorkflowEventsResponse> {
@@ -49,6 +53,12 @@ export class WorkflowEventsController {
   @HttpCode(200)
   retry(@Param("id") id: string): Promise<WorkflowEventActionResult> {
     return this.workflowEvents.retry(id);
+  }
+
+  @Post(":id/suggest-fix")
+  @HttpCode(200)
+  suggestFix(@Param("id") id: string): Promise<WorkflowEventActionResult> {
+    return this.fixSuggester.suggestFix(id);
   }
 
   @Post(":id/apply-fix")

@@ -1,7 +1,7 @@
 import { NotFoundException } from "@nestjs/common";
 import {
   createPrismaClient,
-  type Prisma,
+  Prisma,
   type WorkflowFailureEvent as DbWorkflowFailureEvent,
   type WorkflowSource as DbWorkflowSource,
 } from "@awm/db";
@@ -121,6 +121,12 @@ export class PrismaWorkflowEventsRepository implements WorkflowEventsRepository 
           patch.inputPayload === undefined
             ? undefined
             : ((patch.inputPayload ?? {}) as Prisma.InputJsonValue),
+        fixSuggestion:
+          patch.fixSuggestion === undefined
+            ? undefined
+            : patch.fixSuggestion === null
+              ? Prisma.DbNull
+              : (patch.fixSuggestion as unknown as Prisma.InputJsonValue),
       },
       include: EVENT_INCLUDE,
     });

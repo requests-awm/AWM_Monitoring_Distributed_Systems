@@ -22,6 +22,7 @@ import { OverviewController } from "./overview/overview.controller";
 import { OverviewService } from "./overview/overview.service";
 import { AutomationsController } from "./workflow-events/automations.controller";
 import { AutomationsService } from "./workflow-events/automations.service";
+import { FixSuggesterService } from "./workflow-events/fix-suggester.service";
 import { N8nInsightsService } from "./workflow-events/n8n-insights.service";
 import { IngestController } from "./workflow-events/ingest.controller";
 import { UsageController, UsageStore } from "./workflow-events/usage.controller";
@@ -64,6 +65,7 @@ import { WorkflowEventsService } from "./workflow-events/workflow-events.service
     WorkflowEventsService,
     AutomationsService,
     N8nInsightsService,
+    FixSuggesterService,
     UsageStore,
     N8nGateway,
     {

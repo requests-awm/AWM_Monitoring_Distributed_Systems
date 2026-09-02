@@ -51,6 +51,7 @@ export type WorkflowEventPatch = Partial<
     | "resolvedAt"
     | "retryExecutionId"
     | "inputPayload"
+    | "fixSuggestion"
   >
 >;
 
