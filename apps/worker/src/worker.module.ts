@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 
 import { CheckPollerService } from "./checks/poller.service";
 import { N8nSweepService } from "./sweep/n8n-sweep.service";
+import { ProviderReferencesService } from "./sweep/provider-references.service";
 
 /**
  * Root module for the monitoring worker process. The check poller executes
@@ -9,6 +10,6 @@ import { N8nSweepService } from "./sweep/n8n-sweep.service";
  * the interval loop in M2 once Redis is provisioned.
  */
 @Module({
-  providers: [CheckPollerService, N8nSweepService],
+  providers: [CheckPollerService, N8nSweepService, ProviderReferencesService],
 })
 export class WorkerModule {}

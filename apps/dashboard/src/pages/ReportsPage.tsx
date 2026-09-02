@@ -33,33 +33,41 @@ function ApiUsageSection(): JSX.Element {
 
   const providers = useMemo(() => {
     const rows = query.data?.rows ?? [];
+    const references = query.data?.references ?? [];
     const dates = lastNDates(14);
-    const byProvider = new Map<string, { rows: UsageDayRow[]; apps: Set<string> }>();
-    for (const r of rows) {
-      const p = byProvider.get(r.provider) ?? { rows: [], apps: new Set<string>() };
-      p.rows.push(r);
-      p.apps.add(r.app);
-      byProvider.set(r.provider, p);
-    }
+    const names = new Set<string>([...rows.map((r) => r.provider), ...references.map((r) => r.provider)]);
     const today = dates[dates.length - 1] ?? "";
     const week = dates.slice(-7);
-    return [...byProvider.entries()]
-      .map(([provider, p]) => {
+    return [...names]
+      .map((provider) => {
+        const pRows = rows.filter((r) => r.provider === provider);
         const perDay = dates.map((date) => ({
           date,
-          calls: p.rows.filter((r) => r.date === date).reduce((a, r) => a + r.calls, 0),
+          calls: pRows.filter((r) => r.date === date).reduce((a, r) => a + r.calls, 0),
         }));
+        // Who uses this provider: derived references + anything reported with an automation tag.
+        const usedBy = new Map<string, string>();
+        for (const ref of references.filter((r) => r.provider === provider)) {
+          usedBy.set(`${ref.app}: ${ref.automation}`, "");
+        }
+        for (const r of pRows) {
+          if (r.automation !== null) {
+            const key = `${r.app}: ${r.automation}`;
+            usedBy.set(key, `${(pRows.filter((x) => x.automation === r.automation).reduce((a, x) => a + x.calls, 0)).toLocaleString()} calls`);
+          }
+        }
         return {
           provider,
-          apps: [...p.apps].sort(),
-          today: p.rows.filter((r) => r.date === today).reduce((a, r) => a + r.calls, 0),
-          week: p.rows.filter((r) => week.includes(r.date)).reduce((a, r) => a + r.calls, 0),
-          weekErrors: p.rows.filter((r) => week.includes(r.date)).reduce((a, r) => a + r.errors, 0),
+          apps: [...new Set(pRows.map((r) => r.app))].sort(),
+          usedBy: [...usedBy.entries()].sort((a, b) => a[0].localeCompare(b[0])),
+          today: pRows.filter((r) => r.date === today).reduce((a, r) => a + r.calls, 0),
+          week: pRows.filter((r) => week.includes(r.date)).reduce((a, r) => a + r.calls, 0),
+          weekErrors: pRows.filter((r) => week.includes(r.date)).reduce((a, r) => a + r.errors, 0),
           perDay,
           max: Math.max(1, ...perDay.map((d) => d.calls)),
         };
       })
-      .sort((a, b) => b.week - a.week);
+      .sort((a, b) => b.week - a.week || b.usedBy.length - a.usedBy.length);
   }, [query.data]);
 
   return (
@@ -96,9 +104,29 @@ function ApiUsageSection(): JSX.Element {
               <tbody>
                 {providers.map((p) => (
                   <tr key={p.provider} className="border-t tabular-nums" style={{ borderColor: "var(--hairline)" }}>
-                    <td className="px-4 py-2.5 font-medium">{p.provider}</td>
-                    <td className="px-4 py-2.5 text-xs" style={{ color: "var(--ink-secondary)" }}>
-                      {p.apps.join(", ")}
+                    <td className="px-4 py-2.5 align-top font-medium">
+                      {p.provider}
+                      {p.usedBy.length > 0 ? (
+                        <details className="mt-0.5">
+                          <summary className="cursor-pointer text-xs font-normal" style={{ color: "var(--accent)" }}>
+                            used by {p.usedBy.length} automation{p.usedBy.length === 1 ? "" : "s"}
+                          </summary>
+                          <ul className="mt-1 max-h-48 overflow-y-auto pr-2 text-xs font-normal" style={{ color: "var(--ink-secondary)" }}>
+                            {p.usedBy.slice(0, 40).map(([name, calls]) => (
+                              <li key={name} className="truncate py-0.5" title={name}>
+                                {name}
+                                {calls !== "" ? <span style={{ color: "var(--ink-muted)" }}> · {calls} (7d)</span> : null}
+                              </li>
+                            ))}
+                            {p.usedBy.length > 40 ? (
+                              <li style={{ color: "var(--ink-muted)" }}>+{p.usedBy.length - 40} more</li>
+                            ) : null}
+                          </ul>
+                        </details>
+                      ) : null}
+                    </td>
+                    <td className="px-4 py-2.5 align-top text-xs" style={{ color: "var(--ink-secondary)" }}>
+                      {p.apps.join(", ") || "—"}
                     </td>
                     <td className="px-4 py-2.5 text-right">{p.today.toLocaleString()}</td>
                     <td className="px-4 py-2.5 text-right">{p.week.toLocaleString()}</td>

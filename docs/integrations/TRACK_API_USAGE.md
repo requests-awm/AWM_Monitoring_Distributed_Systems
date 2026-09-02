@@ -21,7 +21,8 @@ Content-Type: application/json
 
 | Field | Required | Notes |
 |---|---|---|
-| `provider` | yes | Lowercase provider name — use the same spelling everywhere: `insightly`, `asana`, `openai`, `twilio`, `supabase`, `graph` |
+| `provider` | yes | Lowercase provider name — use the same spelling everywhere: `insightly`, `asana`, `openai`, `twilio`, `supabase`, `msgraph`, `google` |
+| `automation` | recommended | Which job/flow inside the app made the calls, e.g. `"lead-import"` — powers the "used by" attribution in Reports |
 | `calls` | yes | Calls made since the last report |
 | `errors` | no | How many of them failed (4xx/5xx/timeout) |
 | `units` | no | Extra counters, e.g. `{ "tokens": 8123 }` for LLMs, `{ "sms": 4 }` for Twilio |
@@ -36,20 +37,21 @@ Wrap the app's HTTP client once; everything else is automatic:
 
 ```js
 // usage-meter.js — count calls per provider, flush every 60s
-const counters = new Map(); // provider -> { calls, errors }
+const counters = new Map(); // `${provider}|${automation}` -> { provider, automation, calls, errors }
 let windowStart = new Date().toISOString();
 
-export function countApiCall(provider, ok) {
-  const c = counters.get(provider) ?? { calls: 0, errors: 0 };
+export function countApiCall(provider, ok, automation = null) {
+  const key = `${provider}|${automation ?? ""}`;
+  const c = counters.get(key) ?? { provider, automation, calls: 0, errors: 0 };
   c.calls += 1;
   if (!ok) c.errors += 1;
-  counters.set(provider, c);
+  counters.set(key, c);
 }
 
 async function flush() {
   const windowEnd = new Date().toISOString();
-  for (const [provider, c] of counters) {
-    counters.delete(provider);
+  for (const [key, c] of counters) {
+    counters.delete(key);
     try {
       await fetch("https://awmappmonitor.ascotwm.com/api/ingest/usage", {
         method: "POST",
@@ -57,12 +59,19 @@ async function flush() {
           Authorization: `Bearer ${process.env.MONITORING_INGEST_TOKEN}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ provider, ...c, window_start: windowStart, window_end: windowEnd }),
+        body: JSON.stringify({
+          provider: c.provider,
+          automation: c.automation ?? undefined,
+          calls: c.calls,
+          errors: c.errors,
+          window_start: windowStart,
+          window_end: windowEnd,
+        }),
       });
     } catch {
       // put the numbers back so nothing is lost on a blip
-      const prev = counters.get(provider) ?? { calls: 0, errors: 0 };
-      counters.set(provider, { calls: prev.calls + c.calls, errors: prev.errors + c.errors });
+      const prev = counters.get(key) ?? { ...c, calls: 0, errors: 0 };
+      counters.set(key, { ...prev, calls: prev.calls + c.calls, errors: prev.errors + c.errors });
     }
   }
   windowStart = windowEnd;
@@ -74,7 +83,7 @@ Then at every provider call site (or in one shared fetch wrapper):
 
 ```js
 const res = await fetch(insightlyUrl, opts);
-countApiCall("insightly", res.ok);
+countApiCall("insightly", res.ok, "lead-import"); // 3rd arg = which automation, for attribution
 ```
 
 ## Python
