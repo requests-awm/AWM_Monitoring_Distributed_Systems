@@ -22,11 +22,16 @@ jobs:
       - name: Collect the day's commits
         id: commits
         run: |
+          # 24h window, not since-midnight: each 16:30 run covers 16:30 yesterday -> 16:30 today,
+          # so evening commits are never skipped and nothing is double-counted.
           git log --since="24 hours ago" --no-merges --pretty=format:'COMMIT: %s%n%b' > commits.txt
           git log --since="24 hours ago" --no-merges --pretty=format:'- %s' > subjects.txt
           COUNT=$(git log --since="24 hours ago" --no-merges --pretty=format:'%H' | sed '/^$/d' | wc -l | tr -d ' ')
+          STATS=$(git log --since="24 hours ago" --no-merges --pretty=tformat: --numstat \
+            | awk '{a+=$1; d+=$2; files[$3]=1} END {printf "%d files, +%d/-%d", length(files), a, d}')
           echo "count=$COUNT" >> "$GITHUB_OUTPUT"
-          echo "Commits in window: $COUNT"
+          echo "stats=$STATS" >> "$GITHUB_OUTPUT"
+          echo "Commits in window: $COUNT ($STATS)"
 
       - name: Nothing to report
         if: steps.commits.outputs.count == '0'
@@ -36,12 +41,16 @@ jobs:
         if: steps.commits.outputs.count != '0'
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          COUNT: ${{ steps.commits.outputs.count }}
+          STATS: ${{ steps.commits.outputs.stats }}
         run: |
-          SYSTEM_PROMPT="You write an end-of-day work report for a software project, aimed at a manager who does not read code. Input is today's git commits (subjects and bodies). Structure the report as PLAIN TEXT with these sections, in this order, using these exact uppercase headers on their own line: HEADLINE (2-3 sentences: the day's biggest outcome, PR numbers if present, and scale), IN PLAIN TERMS (a short paragraph explaining the area of work for a non-technical reader; include only when the work needs explaining), WHAT WE DELIVERED TODAY (numbered items '1.' '2.' etc; each starts with a short lead sentence naming the deliverable, then 1-2 sentences on what it does and why it matters), HOW WE WORKED (2-4 dash bullets, only practices actually evidenced in the commits such as tests added, fail-closed design, verification), STATUS (which PRs or commits landed, whether deployed), HONEST NEXT STEPS (dash bullets, only pending items the commit messages themselves mention; never invent any). Omit any section you cannot fill honestly from the commits. UK English, direct tone, no jargon, no markdown, no em dashes, no preamble before HEADLINE. Only describe what the commits actually say; never invent work."
+          SYSTEM_PROMPT="You write an end-of-day work report for a software project, aimed at a manager who does not read code. Input is a stats line (commit count, files changed, lines added/removed) followed by today's git commits (subjects and bodies). Structure the report as PLAIN TEXT with these sections, in this order, each header on its own line in exactly this capitalisation: 'Headline' (2-4 sentences: the day's biggest outcome, the scale of the day citing the stats line e.g. '18 commits (51 files, +6694/-199)', PR numbers if present, and where the day ended), 'What this means for the business' (a short paragraph explaining the area of work and why it matters to a non-technical reader; include only when the work needs explaining), 'Delivered today' (numbered items '1.' '2.' etc; each starts with a short lead sentence naming the deliverable, then 1-3 sentences on what it does and why it matters), 'How we worked' (2-4 dash bullets, only practices actually evidenced in the commits such as tests added, verification, fail-closed design), 'Status and next steps' (dash bullets: which commits or PRs landed and whether deployed, then only pending items the commit messages themselves mention, tracked honestly; never invent any). Omit any section you cannot fill honestly from the commits. UK English, direct confident tone, no jargon, no markdown, no em dashes, no preamble before Headline. Only describe what the commits actually say; never invent work."
+          printf 'STATS: %s commits, %s\n\n' "$COUNT" "$STATS" > user.txt
+          cat commits.txt >> user.txt
           jq -n \
             --arg system "$SYSTEM_PROMPT" \
-            --rawfile commits commits.txt \
-            '{model: "gpt-5-mini", messages: [{role: "system", content: $system}, {role: "user", content: $commits}]}' \
+            --rawfile user user.txt \
+            '{model: "gpt-5-mini", messages: [{role: "system", content: $system}, {role: "user", content: $user}]}' \
             > payload.json
           SUMMARY=$(curl -sf --max-time 120 https://api.openai.com/v1/chat/completions \
             -H "Authorization: Bearer $LLM_API_KEY" \
@@ -58,6 +67,7 @@ jobs:
         env:
           ASANA_PAT: ${{ secrets.ASANA_PAT }}
           ASANA_TASK_URL: ${{ vars.ASANA_TASK_URL }}
+          COUNT: ${{ steps.commits.outputs.count }}
         run: |
           if [ -z "$ASANA_TASK_URL" ]; then
             echo "ASANA_TASK_URL repo variable is not set." >&2
@@ -68,14 +78,15 @@ jobs:
             echo "Could not extract a task gid from ASANA_TASK_URL." >&2
             exit 1
           fi
-          HEADER="Daily work log - $(date +'%A %-d %B %Y') (${GITHUB_REPOSITORY##*/})"
-          COUNT="${{ steps.commits.outputs.count }}"
+          HEADER="DAILY WORK LOG - $(date +'%A %-d %B %Y') (${GITHUB_REPOSITORY##*/})"
           {
-            printf '%s\n\n' "$HEADER"
             cat summary.txt
-            printf '\n\n%s commit(s) pushed today.\n' "$COUNT"
-          } > comment.txt
-          jq -n --rawfile text comment.txt '{data: {text: $text}}' > story.json
+            printf '\n%s commit(s) pushed today.\n' "$COUNT"
+          } > body.txt
+          # html_text (not text) so the header renders bold in Asana; body is HTML-escaped via jq @html.
+          jq -n --arg h "$HEADER" --rawfile b body.txt \
+            '{data: {html_text: ("<body><strong>" + ($h|@html) + "</strong>\n\n" + ($b|@html) + "</body>")}}' \
+            > story.json
           curl -sf --max-time 60 "https://app.asana.com/api/1.0/tasks/${GID}/stories" \
             -H "Authorization: Bearer $ASANA_PAT" \
             -H "Content-Type: application/json" \
