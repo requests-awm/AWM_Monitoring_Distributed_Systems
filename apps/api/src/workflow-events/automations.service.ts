@@ -3,6 +3,7 @@ import type {
   AutomationInventoryResponse,
   AutomationRow,
   N8nWorkflowToggleResult,
+  WorkflowPlatform,
   ZapInventoryPushBody,
 } from "@awm/shared";
 
@@ -30,6 +31,19 @@ interface ZapSnapshot {
   pushedAt: string;
   source: string;
   zaps: ZapInventoryPushBody["zaps"];
+}
+
+interface FailureSummary {
+  platform: WorkflowPlatform;
+  externalId: string;
+  name: string;
+  count: number;
+  lastAt: string;
+  historyUrl: string | null;
+}
+
+function failureKey(platform: WorkflowPlatform, externalId: string): string {
+  return `${platform}:${externalId}`;
 }
 
 @Injectable()
@@ -99,11 +113,39 @@ export class AutomationsService {
     }
 
     for (const row of rows) {
-      const f = failures.get(row.externalId);
+      const f = failures.get(failureKey(row.platform, row.externalId));
       if (f !== undefined) {
         row.recentFailures = f.count;
         row.lastFailureAt = f.lastAt;
       }
+    }
+
+    // Custom apps (and any platform whose inventory is unavailable) have no
+    // list API — the only thing we know about them is what they report, so
+    // failing jobs are listed straight from the inbox.
+    const inventoried = new Set(rows.map((r) => failureKey(r.platform, r.externalId)));
+    let reportedOnly = 0;
+    for (const [key, f] of failures) {
+      if (inventoried.has(key)) continue;
+      reportedOnly += 1;
+      rows.push({
+        platform: f.platform,
+        externalId: f.externalId,
+        name: f.name,
+        active: true,
+        stateLabel: "reporting",
+        hasErrorHandler: null,
+        editorUrl: null,
+        historyUrl: f.historyUrl,
+        lastEditedBy: null,
+        recentFailures: f.count,
+        lastFailureAt: f.lastAt,
+      });
+    }
+    if (reportedOnly > 0) {
+      notes.push(
+        `${reportedOnly} job(s) listed from failure reports alone — no inventory API for that platform, so state is unknown.`,
+      );
     }
 
     // This is a failing-automations list; once a workflow's open failures are
@@ -148,18 +190,30 @@ export class AutomationsService {
     return { workflowId, active, note: null };
   }
 
-  private async failureIndex(): Promise<Map<string, { count: number; lastAt: string }>> {
-    const index = new Map<string, { count: number; lastAt: string }>();
+  private async failureIndex(): Promise<Map<string, FailureSummary>> {
+    const index = new Map<string, FailureSummary>();
     const cutoff = Date.now() - FAILURE_WINDOW_MS;
     for (const event of await this.repo.listEvents()) {
       if (event.status === "resolved" || event.status === "ignored") continue;
       if (new Date(event.occurredAt).getTime() < cutoff) continue;
-      const current = index.get(event.workflowExternalId);
+      const key = failureKey(event.platform, event.workflowExternalId);
+      const current = index.get(key);
       if (current === undefined) {
-        index.set(event.workflowExternalId, { count: 1, lastAt: event.occurredAt });
+        index.set(key, {
+          platform: event.platform,
+          externalId: event.workflowExternalId,
+          name: event.workflowName,
+          count: 1,
+          lastAt: event.occurredAt,
+          historyUrl: event.executionUrl,
+        });
       } else {
         current.count += 1;
-        if (event.occurredAt > current.lastAt) current.lastAt = event.occurredAt;
+        if (event.occurredAt > current.lastAt) {
+          current.lastAt = event.occurredAt;
+          current.name = event.workflowName;
+          current.historyUrl = event.executionUrl ?? current.historyUrl;
+        }
       }
     }
     return index;

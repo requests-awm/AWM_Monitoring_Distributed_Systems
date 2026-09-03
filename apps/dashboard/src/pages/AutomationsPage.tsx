@@ -13,6 +13,7 @@ import { ActionButton, ExternalLink, PlatformChip } from "../components/Workflow
 import { WorkflowInspectorDrawer } from "../components/WorkflowInspectorDrawer";
 import { apiGet, apiSend } from "../lib/api";
 import { timeAgo } from "../lib/time";
+import { PLATFORM_LABEL } from "../lib/workflowMeta";
 
 type PlatformFilter = "all" | WorkflowPlatform;
 
@@ -323,7 +324,7 @@ export default function AutomationsPage(): JSX.Element {
       <header className="mb-5">
         <h1 className="text-lg font-semibold">Automations</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--ink-muted)" }}>
-          Every workflow and Zap across connected sources — state, error-handler coverage, and recent failures.
+          Every workflow, Zap and custom app job across connected sources — state, error-handler coverage, and recent failures.
         </p>
         {data.notes.map((note) => (
           <p key={note} className="mt-1 text-xs" style={{ color: "var(--ink-muted)" }}>
@@ -352,7 +353,7 @@ export default function AutomationsPage(): JSX.Element {
               className="rounded-md px-3 py-1.5 text-xs font-medium"
               style={{ background: platform === p ? "var(--surface-inset)" : "transparent", color: platform === p ? "var(--ink-primary)" : "var(--ink-muted)" }}
             >
-              {p === "n8n" ? "n8n" : p === "zapier" ? "Zapier" : p}
+              {PLATFORM_LABEL[p]}
             </button>
           ))}
         </div>
