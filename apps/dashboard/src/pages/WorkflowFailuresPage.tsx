@@ -1,12 +1,18 @@
 import { useCallback, useMemo, useState } from "react";
-import { WorkflowEventStatus, WorkflowPlatform, type WorkflowFailureEvent } from "@awm/shared";
+import {
+  WorkflowEventStatus,
+  WorkflowPlatform,
+  type WorkflowFailureEvent,
+  type WorkflowSourceSummary,
+} from "@awm/shared";
 
 import { ConnectAppDialog } from "../components/ConnectAppDialog";
 import { Toast, type ToastState } from "../components/Toast";
-import { ActionButton } from "../components/WorkflowBadges";
+import { ActionButton, PlatformChip } from "../components/WorkflowBadges";
 import { WorkflowEventDrawer } from "../components/WorkflowEventDrawer";
 import { WorkflowEventsTable } from "../components/WorkflowEventsTable";
 import { StatTile } from "../components/StatTile";
+import { timeAgo } from "../lib/time";
 import { EVENT_STATUS_META, OPEN_STATUSES, PLATFORM_LABEL } from "../lib/workflowMeta";
 import { useWorkflowEvents } from "../lib/useWorkflowEvents";
 import {
@@ -45,6 +51,87 @@ function SegmentButton({
   );
 }
 
+interface ConnectedAppRow {
+  source: WorkflowSourceSummary;
+  open: number;
+  last24h: number;
+  lastReportAt: string | null;
+}
+
+function ConnectedApps({
+  rows,
+  selected,
+  onSelect,
+}: {
+  rows: ConnectedAppRow[];
+  selected: string | null;
+  onSelect: (name: string | null) => void;
+}): JSX.Element {
+  return (
+    <section className="mb-6 overflow-hidden rounded-xl border" style={{ borderColor: "var(--hairline)" }}>
+      <div className="flex items-center justify-between px-4 py-2.5">
+        <h2 className="text-sm font-semibold">Connected apps</h2>
+        <span className="text-xs" style={{ color: "var(--ink-muted)" }}>
+          {selected === null
+            ? "Click an app to filter the events below"
+            : `Showing events from ${selected}`}
+        </span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs uppercase tracking-wide" style={{ color: "var(--ink-muted)" }}>
+              <th className="px-4 py-2 font-medium">App</th>
+              <th className="px-4 py-2 font-medium">Platform</th>
+              <th className="px-4 py-2 text-right font-medium">Open failures</th>
+              <th className="px-4 py-2 text-right font-medium">Failures · 24h</th>
+              <th className="px-4 py-2 text-right font-medium">Last report</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ source, open, last24h, lastReportAt }) => {
+              const active = selected === source.name;
+              return (
+                <tr
+                  key={source.id}
+                  onClick={() => onSelect(active ? null : source.name)}
+                  aria-selected={active}
+                  className="cursor-pointer border-t transition-colors"
+                  style={{
+                    borderColor: "var(--hairline)",
+                    background: active ? "var(--surface-inset)" : "transparent",
+                  }}
+                >
+                  <td className="px-4 py-2.5">
+                    <span className="font-medium">{source.name}</span>
+                    {source.sweepEnabled ? (
+                      <span className="ml-2 text-xs" style={{ color: "var(--ink-muted)" }}>
+                        sweep
+                      </span>
+                    ) : null}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <PlatformChip platform={source.platform} />
+                  </td>
+                  <td className="px-4 py-2.5 text-right tabular-nums">
+                    <span style={{ color: open > 0 ? "var(--status-critical)" : "var(--status-good)" }}>
+                      {open}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-right tabular-nums">{last24h}</td>
+                  <td className="px-4 py-2.5 text-right text-xs tabular-nums" style={{ color: "var(--ink-muted)" }}>
+                    {lastReportAt === null ? "nothing reported yet" : timeAgo(lastReportAt)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 function CenterNote({ text, tone }: { text: string; tone?: "error" }): JSX.Element {
   return (
     <div className="flex min-h-[50vh] items-center justify-center">
@@ -65,6 +152,7 @@ export default function WorkflowFailuresPage(): JSX.Element {
   const [platform, setPlatform] = useState<PlatformFilter>("all");
   const [status, setStatus] = useState<StatusFilter>("all");
   const [search, setSearch] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [connectOpen, setConnectOpen] = useState(false);
@@ -112,6 +200,24 @@ export default function WorkflowFailuresPage(): JSX.Element {
     };
   }, [events]);
 
+  const connectedApps = useMemo<ConnectedAppRow[]>(() => {
+    const now = Date.now();
+    const rows = (query.data?.sources ?? []).map((source) => {
+      const own = events.filter((e) => e.sourceName === source.name);
+      const last = own.reduce<string | null>(
+        (acc, e) => (acc === null || e.occurredAt > acc ? e.occurredAt : acc),
+        null,
+      );
+      return {
+        source,
+        open: own.filter((e) => OPEN_STATUSES.includes(e.status)).length,
+        last24h: own.filter((e) => now - new Date(e.occurredAt).getTime() < DAY_MS).length,
+        lastReportAt: last,
+      };
+    });
+    return rows.sort((a, b) => b.open - a.open || a.source.name.localeCompare(b.source.name));
+  }, [query.data, events]);
+
   const platforms = useMemo<WorkflowPlatform[]>(() => {
     const seen = new Set(events.map((e) => e.platform));
     return WorkflowPlatform.options.filter((p) => seen.has(p));
@@ -122,6 +228,7 @@ export default function WorkflowFailuresPage(): JSX.Element {
     return events.filter((e) => {
       if (view === "attention" && !OPEN_STATUSES.includes(e.status)) return false;
       if (platform !== "all" && e.platform !== platform) return false;
+      if (sourceFilter !== null && e.sourceName !== sourceFilter) return false;
       if (view === "all" && status !== "all" && e.status !== status) return false;
       if (
         term !== "" &&
@@ -131,7 +238,7 @@ export default function WorkflowFailuresPage(): JSX.Element {
       }
       return true;
     });
-  }, [events, view, platform, status, search]);
+  }, [events, view, platform, sourceFilter, status, search]);
 
   const selected = events.find((e) => e.id === selectedId) ?? null;
 
@@ -147,14 +254,6 @@ export default function WorkflowFailuresPage(): JSX.Element {
             Failed executions across every connected source — pushed by error handlers,
             reconciled by the sweep.
           </p>
-          {query.data.sources.length > 0 ? (
-            <p className="mt-1 text-xs" style={{ color: "var(--ink-muted)" }}>
-              Sources:{" "}
-              {query.data.sources
-                .map((s) => `${s.name}${s.sweepEnabled ? " (sweep)" : ""}`)
-                .join(" · ")}
-            </p>
-          ) : null}
         </div>
         <ActionButton tone="accent" onClick={() => setConnectOpen(true)}>
           + Connect app
@@ -175,6 +274,10 @@ export default function WorkflowFailuresPage(): JSX.Element {
         />
         <StatTile label="Retried" value={stats.retried} muted />
       </div>
+
+      {connectedApps.length > 0 ? (
+        <ConnectedApps rows={connectedApps} selected={sourceFilter} onSelect={setSourceFilter} />
+      ) : null}
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div
