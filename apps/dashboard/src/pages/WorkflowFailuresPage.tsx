@@ -219,9 +219,28 @@ export default function WorkflowFailuresPage(): JSX.Element {
   }, [query.data, events]);
 
   const platforms = useMemo<WorkflowPlatform[]>(() => {
-    const seen = new Set(events.map((e) => e.platform));
+    const seen = new Set<WorkflowPlatform>(events.map((e) => e.platform));
+    for (const source of query.data?.sources ?? []) seen.add(source.platform);
     return WorkflowPlatform.options.filter((p) => seen.has(p));
-  }, [events]);
+  }, [events, query.data]);
+
+  const visibleApps = useMemo(
+    () => (platform === "all" ? connectedApps : connectedApps.filter((r) => r.source.platform === platform)),
+    [connectedApps, platform],
+  );
+
+  const choosePlatform = useCallback(
+    (next: PlatformFilter): void => {
+      setPlatform(next);
+      if (next !== "all" && sourceFilter !== null) {
+        const stillVisible = connectedApps.some(
+          (r) => r.source.name === sourceFilter && r.source.platform === next,
+        );
+        if (!stillVisible) setSourceFilter(null);
+      }
+    },
+    [connectedApps, sourceFilter],
+  );
 
   const visible = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -275,9 +294,6 @@ export default function WorkflowFailuresPage(): JSX.Element {
         <StatTile label="Retried" value={stats.retried} muted />
       </div>
 
-      {connectedApps.length > 0 ? (
-        <ConnectedApps rows={connectedApps} selected={sourceFilter} onSelect={setSourceFilter} />
-      ) : null}
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div
@@ -300,11 +316,11 @@ export default function WorkflowFailuresPage(): JSX.Element {
           role="group"
           aria-label="Filter by platform"
         >
-          <SegmentButton active={platform === "all"} onClick={() => setPlatform("all")}>
+          <SegmentButton active={platform === "all"} onClick={() => choosePlatform("all")}>
             All platforms
           </SegmentButton>
           {platforms.map((p) => (
-            <SegmentButton key={p} active={platform === p} onClick={() => setPlatform(p)}>
+            <SegmentButton key={p} active={platform === p} onClick={() => choosePlatform(p)}>
               {PLATFORM_LABEL[p]}
             </SegmentButton>
           ))}
@@ -345,6 +361,10 @@ export default function WorkflowFailuresPage(): JSX.Element {
           }}
         />
       </div>
+
+      {visibleApps.length > 0 ? (
+        <ConnectedApps rows={visibleApps} selected={sourceFilter} onSelect={setSourceFilter} />
+      ) : null}
 
       <WorkflowEventsTable
         events={visible}
