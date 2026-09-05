@@ -14,12 +14,13 @@ import type {
 import { env, seedDemoData } from "../config/env";
 
 /**
- * Sample-mode store for the monitoring core. Same seam pattern as the
- * workflow-events store: swap for a Prisma implementation when DATABASE_URL
- * is set (interface extraction tracked in docs/CONTINUATION.md).
+ * In-memory working set for the monitoring core. In sample mode it is the
+ * only store; in live mode MonitoringPersistence hydrates it from the DB at
+ * boot and write-through keeps the DB in sync (monitoring.persistence.ts).
  *
  * Seeded monitors point at the platform itself and public endpoints, so real
- * check results flow with zero external dependencies.
+ * check results flow with zero external dependencies. On a first live boot
+ * against an empty schema the seeds are materialized into the DB.
  */
 
 export interface EnvironmentRecord {
@@ -150,8 +151,6 @@ function nowIso(): string {
 
 @Injectable()
 export class MonitoringStore {
-  readonly mode = "sample" as const;
-
   readonly projects: ProjectRecord[] = [];
   readonly monitors = new Map<string, MonitorRecord>();
   readonly results = new Map<string, MonitorResultRecord[]>();
@@ -167,8 +166,13 @@ export class MonitoringStore {
 
   // --- helpers ---------------------------------------------------------
 
+  /**
+   * Plain UUIDs: ids go into UUID columns in live mode, so no prefixes. The
+   * prefix parameter is kept for call-site readability only.
+   */
   newId(prefix: string): string {
-    return `${prefix}-${randomUUID().slice(0, 8)}`;
+    void prefix;
+    return randomUUID();
   }
 
   audit(action: string, actor: string, entityType: string, entityId: string, metadata: Record<string, unknown> | null = null): void {
@@ -238,20 +242,24 @@ export class MonitoringStore {
   // --- seed ------------------------------------------------------------
 
   private seed(): void {
+    // Seed ids are generated UUIDs (not literals): in live mode a first boot
+    // materializes these rows into UUID columns; lookups are by name/tag.
+    const envPlatformProd = this.newId("env");
+    const envTbProd = this.newId("env");
     const platform: ProjectRecord = {
-      id: "proj-platform",
+      id: this.newId("proj"),
       name: "Monitoring Platform",
       slug: "monitoring-platform",
-      environments: [{ id: "env-platform-prod", name: "production" }],
+      environments: [{ id: envPlatformProd, name: "production" }],
       isDeleted: false,
     };
     const taskBooker: ProjectRecord = {
-      id: "proj-taskbooker",
+      id: this.newId("proj"),
       name: "AWM Task Booker",
       slug: "awm-task-booker",
       environments: [
-        { id: "env-tb-prod", name: "production" },
-        { id: "env-tb-staging", name: "staging" },
+        { id: envTbProd, name: "production" },
+        { id: this.newId("env"), name: "staging" },
       ],
       isDeleted: false,
     };
@@ -273,11 +281,11 @@ export class MonitoringStore {
     };
 
     seedMonitor({
-      id: "mon-api-health",
+      id: this.newId("mon"),
       name: "Platform API health",
       description: "Self-monitoring: liveness endpoint of this API",
       projectId: platform.id,
-      environmentId: "env-platform-prod",
+      environmentId: envPlatformProd,
       monitorType: "http",
       checkIntervalMinutes: 1,
       timeoutMs: 10_000,
@@ -293,11 +301,11 @@ export class MonitoringStore {
       heartbeatToken: null,
     });
     seedMonitor({
-      id: "mon-api-port",
+      id: this.newId("mon"),
       name: "Platform API port",
       description: "TCP reachability of the API listener",
       projectId: platform.id,
-      environmentId: "env-platform-prod",
+      environmentId: envPlatformProd,
       monitorType: "tcp_port",
       checkIntervalMinutes: 1,
       timeoutMs: 5_000,
@@ -309,11 +317,11 @@ export class MonitoringStore {
       heartbeatToken: null,
     });
     seedMonitor({
-      id: "mon-example-http",
+      id: this.newId("mon"),
       name: "Example.com availability",
       description: "External HTTP reference check",
       projectId: taskBooker.id,
-      environmentId: "env-tb-prod",
+      environmentId: envTbProd,
       monitorType: "http",
       checkIntervalMinutes: 5,
       timeoutMs: 15_000,
@@ -329,11 +337,11 @@ export class MonitoringStore {
       heartbeatToken: null,
     });
     seedMonitor({
-      id: "mon-example-ssl",
+      id: this.newId("mon"),
       name: "example.com certificate",
       description: "SSL validity and expiry",
       projectId: taskBooker.id,
-      environmentId: "env-tb-prod",
+      environmentId: envTbProd,
       monitorType: "ssl",
       checkIntervalMinutes: 60,
       timeoutMs: 10_000,
@@ -345,11 +353,11 @@ export class MonitoringStore {
       heartbeatToken: null,
     });
     seedMonitor({
-      id: "mon-gmail-smtp",
+      id: this.newId("mon"),
       name: "Gmail SMTP reachability",
       description: "Email provider connectivity (implicit TLS)",
       projectId: taskBooker.id,
-      environmentId: "env-tb-prod",
+      environmentId: envTbProd,
       monitorType: "email_provider",
       checkIntervalMinutes: 15,
       timeoutMs: 10_000,
@@ -361,11 +369,11 @@ export class MonitoringStore {
       heartbeatToken: null,
     });
     seedMonitor({
-      id: "mon-integration-example",
+      id: this.newId("mon"),
       name: "Insightly API (reference)",
       description: "Integration check with failure classification — placeholder endpoint until credentials arrive",
       projectId: taskBooker.id,
-      environmentId: "env-tb-prod",
+      environmentId: envTbProd,
       monitorType: "api_integration",
       checkIntervalMinutes: 10,
       timeoutMs: 15_000,
@@ -385,12 +393,12 @@ export class MonitoringStore {
     // by the worker — synthetic_workflow is skipped in the due endpoint.
     if (env.N8N_API_KEY !== undefined) {
       seedMonitor({
-        id: "mon-n8n-failure-rate",
+        id: this.newId("mon"),
         name: "n8n failure-rate anomaly",
         description:
           "Alerts when today's n8n failure rate runs more than 2× the 7-day baseline (with a 2% floor)",
         projectId: platform.id,
-        environmentId: "env-platform-prod",
+        environmentId: envPlatformProd,
         monitorType: "synthetic_workflow",
         checkIntervalMinutes: 15,
         timeoutMs: 30_000,
@@ -406,11 +414,11 @@ export class MonitoringStore {
     // real deployments (SEED_DEMO_DATA=false) it would just be a noise machine.
     if (seedDemoData) {
       seedMonitor({
-        id: "mon-heartbeat-demo",
+        id: this.newId("mon"),
         name: "Demo cron heartbeat",
         description: "Missed-job detection demo — ping /api/heartbeats/{token} to recover it",
         projectId: platform.id,
-        environmentId: "env-platform-prod",
+        environmentId: envPlatformProd,
         monitorType: "heartbeat",
         checkIntervalMinutes: 1,
         timeoutMs: 5_000,
@@ -423,11 +431,11 @@ export class MonitoringStore {
       });
     }
     seedMonitor({
-      id: "mon-heartbeat-sync",
+      id: this.newId("mon"),
       name: "Nightly Insightly sync",
       description: "Job execution tracking for the nightly sync",
       projectId: taskBooker.id,
-      environmentId: "env-tb-prod",
+      environmentId: envTbProd,
       monitorType: "heartbeat",
       checkIntervalMinutes: 30,
       timeoutMs: 5_000,
@@ -439,9 +447,11 @@ export class MonitoringStore {
       heartbeatToken: `hb_${randomBytes(16).toString("base64url")}`,
     });
 
+    const chanOpsWebhook = this.newId("chan");
+    const chanOpsEmail = this.newId("chan");
     this.channels.push(
       {
-        id: "chan-ops-webhook",
+        id: chanOpsWebhook,
         name: "Ops webhook (local sink)",
         channelType: "webhook",
         config: { url: `${base}/api/dev/webhook-sink` },
@@ -449,7 +459,7 @@ export class MonitoringStore {
         isDeleted: false,
       },
       {
-        id: "chan-ops-email",
+        id: chanOpsEmail,
         name: "Ops email",
         channelType: "email",
         config: { to: "operations.support@ascotwm.com" },
@@ -459,9 +469,9 @@ export class MonitoringStore {
     );
     this.alertRules.push(
       {
-        id: "rule-critical-webhook",
+        id: this.newId("rule"),
         name: "Critical & high → Ops webhook",
-        channelId: "chan-ops-webhook",
+        channelId: chanOpsWebhook,
         conditions: { severities: ["critical", "high"] },
         escalationDelaySeconds: 600,
         priority: 10,
@@ -469,9 +479,9 @@ export class MonitoringStore {
         isDeleted: false,
       },
       {
-        id: "rule-all-email",
+        id: this.newId("rule"),
         name: "Everything → Ops email",
-        channelId: "chan-ops-email",
+        channelId: chanOpsEmail,
         conditions: {},
         escalationDelaySeconds: null,
         priority: 0,

@@ -5,7 +5,6 @@ import { N8nInsightsService } from "../workflow-events/n8n-insights.service";
 import { IncidentEngine } from "./incident.engine";
 import { MonitoringStore } from "./monitoring.store";
 
-const MONITOR_ID = "mon-n8n-failure-rate";
 /** Let the API finish booting (and the first dashboard insights call warm the cache) first. */
 const BOOT_DELAY_MS = 3 * 60_000;
 const RUN_INTERVAL_MS = 15 * 60_000;
@@ -50,8 +49,16 @@ export class AnomalyDetector implements OnModuleInit, OnModuleDestroy {
   }
 
   private async run(): Promise<void> {
-    const monitor = this.store.monitors.get(MONITOR_ID);
-    if (monitor === undefined || monitor.isDeleted || !monitor.enabled) return;
+    // Ids are UUIDs (and DB-assigned after hydration), so find the seed by shape.
+    const monitor = this.store
+      .activeMonitors()
+      .find(
+        (m) =>
+          m.monitorType === "synthetic_workflow" &&
+          m.tags.includes("n8n") &&
+          m.tags.includes("anomaly"),
+      );
+    if (monitor === undefined || !monitor.enabled) return;
     const cfg = monitor.configuration as AnomalyConfig;
     const baselineDays = cfg.baselineDays ?? 7;
     const multiplier = cfg.multiplier ?? 2;

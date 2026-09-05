@@ -17,6 +17,7 @@ import {
   type UptimeReportRow,
 } from "@awm/shared";
 
+import { MonitoringPersistence } from "./monitoring.persistence";
 import {
   MonitoringStore,
   type MonitorRecord,
@@ -28,7 +29,10 @@ const SENSITIVE_KEYS = new Set(["password", "token", "headerValue", "apiKey", "s
 
 @Injectable()
 export class MonitoringService {
-  constructor(private readonly store: MonitoringStore) {}
+  constructor(
+    private readonly store: MonitoringStore,
+    private readonly persistence: MonitoringPersistence,
+  ) {}
 
   // --- projects ----------------------------------------------------------
 
@@ -48,6 +52,7 @@ export class MonitoringService {
       isDeleted: false,
     };
     this.store.projects.push(project);
+    this.persistence.saveProject(project);
     this.store.audit("project_created", actor, "project", project.id, { name: body.name });
     return { id: project.id, name: project.name, slug: project.slug, environments: project.environments };
   }
@@ -98,6 +103,7 @@ export class MonitoringService {
       lastMissedEmitAt: null,
     };
     this.store.monitors.set(monitor.id, monitor);
+    this.persistence.saveMonitor(monitor);
     this.store.audit("monitor_created", actor, "monitor", monitor.id, { name: monitor.name });
     return this.toDto(monitor);
   }
@@ -113,6 +119,7 @@ export class MonitoringService {
     if (body.checkIntervalMinutes !== undefined || body.enabled !== undefined) {
       monitor.nextDueAt = Date.now(); // reschedule immediately on cadence/enable changes
     }
+    this.persistence.saveMonitor(monitor);
     this.store.audit("monitor_changed", actor, "monitor", monitor.id, { fields: Object.keys(body) });
     return this.toDto(monitor);
   }
@@ -121,6 +128,7 @@ export class MonitoringService {
     const monitor = this.mustGetMonitor(id);
     monitor.isDeleted = true;
     monitor.enabled = false;
+    this.persistence.saveMonitor(monitor);
     this.store.audit("monitor_deleted", actor, "monitor", monitor.id, null);
   }
 
@@ -171,6 +179,7 @@ export class MonitoringService {
       isDeleted: false,
     };
     this.store.maintenanceWindows.push(record);
+    this.persistence.saveWindow(record);
     this.store.audit("maintenance_created", actor, "maintenance_window", record.id, { name: body.name });
     return { ...record, active: Date.now() >= new Date(record.startsAt).getTime() && Date.now() <= new Date(record.endsAt).getTime() };
   }
@@ -179,6 +188,7 @@ export class MonitoringService {
     const record = this.store.maintenanceWindows.find((w) => w.id === id && !w.isDeleted);
     if (record === undefined) throw new NotFoundException(`Maintenance window ${id} not found`);
     record.isDeleted = true;
+    this.persistence.saveWindow(record);
     this.store.audit("maintenance_deleted", actor, "maintenance_window", id, null);
   }
 

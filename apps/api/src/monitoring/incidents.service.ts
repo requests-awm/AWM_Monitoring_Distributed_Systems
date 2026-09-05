@@ -1,11 +1,15 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import type { IncidentDetailResponse, IncidentDto } from "@awm/shared";
 
+import { MonitoringPersistence } from "./monitoring.persistence";
 import { MonitoringStore, type IncidentRecord } from "./monitoring.store";
 
 @Injectable()
 export class IncidentsService {
-  constructor(private readonly store: MonitoringStore) {}
+  constructor(
+    private readonly store: MonitoringStore,
+    private readonly persistence: MonitoringPersistence,
+  ) {}
 
   list(): IncidentDto[] {
     return [...this.store.incidents.values()]
@@ -24,6 +28,7 @@ export class IncidentsService {
       incident.acknowledgedAt = new Date().toISOString();
       if (incident.status === "open") incident.status = "acknowledged";
       this.addEvent(incident, "acknowledged", null, actor);
+      this.persistence.saveIncident(incident);
       this.store.audit("incident_acknowledged", actor, "incident", id, null);
     }
     return this.toDto(incident);
@@ -35,6 +40,7 @@ export class IncidentsService {
       incident.status = "resolved";
       incident.resolvedAt = new Date().toISOString();
       this.addEvent(incident, "resolved", "Resolved manually", actor);
+      this.persistence.saveIncident(incident);
       this.store.audit("incident_resolved", actor, "incident", id, null);
     }
     return this.toDto(incident);
@@ -44,6 +50,7 @@ export class IncidentsService {
     const incident = this.mustGet(id);
     incident.status = "muted";
     this.addEvent(incident, "muted", null, actor);
+    this.persistence.saveIncident(incident);
     return this.toDto(incident);
   }
 
@@ -51,12 +58,14 @@ export class IncidentsService {
     const incident = this.mustGet(id);
     incident.assignee = assignee;
     this.addEvent(incident, "assigned", assignee ?? "Unassigned", actor);
+    this.persistence.saveIncident(incident);
     return this.toDto(incident);
   }
 
   addNote(id: string, message: string, actor: string): IncidentDto {
     const incident = this.mustGet(id);
     this.addEvent(incident, "note_added", message, actor);
+    this.persistence.saveIncident(incident);
     return this.toDto(incident);
   }
 

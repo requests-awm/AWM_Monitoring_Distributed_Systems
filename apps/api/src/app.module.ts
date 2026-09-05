@@ -7,6 +7,7 @@ import { IncidentEngine } from "./monitoring/incident.engine";
 import { IncidentsController } from "./monitoring/incidents.controller";
 import { IncidentsService } from "./monitoring/incidents.service";
 import { HeartbeatsController, InternalController, MiscController } from "./monitoring/internal.controller";
+import { MonitoringPersistence } from "./monitoring/monitoring.persistence";
 import { MonitoringService } from "./monitoring/monitoring.service";
 import { MonitoringStore } from "./monitoring/monitoring.store";
 import { MonitorsController, ProjectsController } from "./monitoring/monitors.controller";
@@ -58,6 +59,7 @@ import { WorkflowEventsService } from "./workflow-events/workflow-events.service
   providers: [
     OverviewService,
     MonitoringStore,
+    MonitoringPersistence,
     MonitoringService,
     IncidentsService,
     SettingsService,

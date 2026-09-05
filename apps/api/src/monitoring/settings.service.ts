@@ -1,13 +1,17 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import type { AlertRuleCreateBody, AlertRuleDto, ChannelCreateBody, NotificationChannelDto } from "@awm/shared";
 
+import { MonitoringPersistence } from "./monitoring.persistence";
 import { MonitoringStore, type AlertRuleRecord, type ChannelRecord } from "./monitoring.store";
 
 const SENSITIVE_CONFIG_KEYS = new Set(["token", "password", "authToken", "apiKey", "secret"]);
 
 @Injectable()
 export class SettingsService {
-  constructor(private readonly store: MonitoringStore) {}
+  constructor(
+    private readonly store: MonitoringStore,
+    private readonly persistence: MonitoringPersistence,
+  ) {}
 
   listChannels(): NotificationChannelDto[] {
     return this.store.channels.filter((c) => !c.isDeleted).map((c) => this.toChannelDto(c));
@@ -23,6 +27,7 @@ export class SettingsService {
       isDeleted: false,
     };
     this.store.channels.push(channel);
+    this.persistence.saveChannel(channel);
     this.store.audit("notification_channel_changed", actor, "notification_channel", channel.id, {
       created: true,
     });
@@ -36,6 +41,7 @@ export class SettingsService {
       throw new BadRequestException("Channel is used by an alert rule — delete the rule first");
     }
     channel.isDeleted = true;
+    this.persistence.saveChannel(channel);
     this.store.audit("notification_channel_changed", actor, "notification_channel", id, { deleted: true });
   }
 
@@ -58,6 +64,7 @@ export class SettingsService {
       isDeleted: false,
     };
     this.store.alertRules.push(rule);
+    this.persistence.saveRule(rule);
     this.store.audit("alert_rule_changed", actor, "alert_rule", rule.id, { created: true });
     return this.toRuleDto(rule);
   }
@@ -66,6 +73,7 @@ export class SettingsService {
     const rule = this.store.alertRules.find((r) => r.id === id && !r.isDeleted);
     if (rule === undefined) throw new NotFoundException(`Alert rule ${id} not found`);
     rule.isDeleted = true;
+    this.persistence.saveRule(rule);
     this.store.audit("alert_rule_changed", actor, "alert_rule", id, { deleted: true });
   }
 

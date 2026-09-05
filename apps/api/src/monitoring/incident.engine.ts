@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import type { HeartbeatPingBody, MonitorResultReport } from "@awm/shared";
 
+import { MonitoringPersistence } from "./monitoring.persistence";
 import { MonitoringStore, type IncidentRecord, type MonitorRecord } from "./monitoring.store";
 import { NotificationDispatcher } from "./notification.dispatcher";
 
@@ -22,6 +23,7 @@ export class IncidentEngine implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly store: MonitoringStore,
     private readonly dispatcher: NotificationDispatcher,
+    private readonly persistence: MonitoringPersistence,
   ) {}
 
   onModuleInit(): void {
@@ -35,7 +37,7 @@ export class IncidentEngine implements OnModuleInit, OnModuleDestroy {
 
   /** Entry point for every check result (worker reports, heartbeat pings, missed-job synthetics). */
   processResult(monitor: MonitorRecord, report: Omit<MonitorResultReport, "monitorId">): void {
-    this.store.pushResult({
+    const result = {
       id: this.store.newId("res"),
       monitorId: monitor.id,
       status: report.status,
@@ -45,7 +47,9 @@ export class IncidentEngine implements OnModuleInit, OnModuleDestroy {
       failureReason: report.failureReason ?? null,
       metadata: (report.metadata ?? null) as Record<string, unknown> | null,
       checkedAt: report.checkedAt,
-    });
+    };
+    this.store.pushResult(result);
+    this.persistence.saveResult(result);
 
     if (report.status === "success") {
       monitor.consecutiveFails = 0;
@@ -99,6 +103,7 @@ export class IncidentEngine implements OnModuleInit, OnModuleDestroy {
     if (existing !== undefined) {
       existing.occurrenceCount += 1;
       existing.lastOccurrenceAt = new Date().toISOString();
+      this.persistence.saveIncident(existing);
       return;
     }
 
@@ -128,6 +133,7 @@ export class IncidentEngine implements OnModuleInit, OnModuleDestroy {
       ],
     };
     this.store.incidents.set(incident.id, incident);
+    this.persistence.saveIncident(incident);
     this.logger.warn(`incident created`, { monitor: monitor.name, title: incident.title });
     void this.dispatchAlerts(monitor, incident, "created");
     this.scheduleEscalations(monitor, incident);
@@ -144,6 +150,7 @@ export class IncidentEngine implements OnModuleInit, OnModuleDestroy {
         actor: null,
         createdAt: new Date().toISOString(),
       });
+      this.persistence.saveIncident(incident);
       void this.dispatchAlerts(monitor, incident, "resolved");
     }
   }
@@ -163,6 +170,7 @@ export class IncidentEngine implements OnModuleInit, OnModuleDestroy {
           actor: null,
           createdAt: new Date().toISOString(),
         });
+        this.persistence.saveIncident(current);
         void this.dispatchAlerts(monitor, current, "escalated");
       }, rule.escalationDelaySeconds * 1000);
       this.escalationTimers.add(timer);
@@ -213,6 +221,7 @@ export class IncidentEngine implements OnModuleInit, OnModuleDestroy {
         createdAt: new Date().toISOString(),
       });
     }
+    if (channelIds.size > 0) this.persistence.saveIncident(incident);
   }
 
   // --- missed-heartbeat detection ----------------------------------------

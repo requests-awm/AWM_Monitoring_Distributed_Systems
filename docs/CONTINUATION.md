@@ -28,9 +28,16 @@ The platform MVP now runs end-to-end in sample mode (in-memory store, real execu
 - **Dashboard**: Overview (live), Monitors (CRUD + detail + run-now), Incidents (timeline,
   ack/resolve/mute/assign/notes), Workflow failures, Maintenance, Reports (uptime/MTTA/MTTR + CSV),
   Settings (channels + rules).
-- **Live-mode seam**: the monitoring store is in-memory only for now — the Prisma repository
-  for the monitoring core is the next continuation step (same pattern as the workflow-events
-  repos below; the DB schema for all of it already exists in `packages/db`).
+- **Live-mode persistence (added 2026-09-05)**: `monitoring.persistence.ts` — the in-memory
+  store stays the hot working set; in live mode it is hydrated from the DB at boot (monitors,
+  channels, rules, windows, open/recent incidents, last-24h results, heartbeat tokens) and every
+  mutation writes through fire-and-forget on a serialized queue. A first **production** boot
+  against an empty schema materializes the seeds into the DB (dev live-mode never does — local
+  seeds carry localhost URLs). DB unreachable at boot = seeds + loud error, API stays up.
+  Deploy prerequisite: set `SELF_BASE_URL` on the API service before the first live boot so the
+  materialized self-monitoring seeds carry the public URL.
+  Not persisted yet: audit trail, scheduler runtime (nextDueAt/consecutiveFails), escalation
+  timers. `monitor_results` has no retention policy yet — agree one with Colin before it grows.
 
 ---
 
